@@ -61,7 +61,7 @@
 #define PARAM_FEEDRATE 'f'
 #define PARAM_INTENSITY 's'
 #define PARAM_DURATION 'd'
-#define PARAM_PIXEL_WIDTH 'p'
+#define PARAM_PULSES_PER_MM 'p'
 #define PARAM_OFFTABLE_X 'h'
 #define PARAM_OFFTABLE_Y 'i'
 #define PARAM_OFFTABLE_Z 'j'
@@ -113,7 +113,7 @@
 #define INFO_FEEDRATE 'g'
 #define INFO_INTENSITY 'h'
 #define INFO_DURATION 'i'
-#define INFO_PIXEL_WIDTH 'j'
+#define INFO_PULSES_PER_MM 'j'
 
 
 

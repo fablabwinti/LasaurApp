@@ -16,6 +16,7 @@
 */
 
 #include <avr/io.h>
+#include <avr/interrupt.h>
 #include <util/delay.h>
 #include <math.h>
 #include <stdlib.h>
@@ -38,24 +39,39 @@ void sense_init() {
 
 void control_init() {
   //// laser control
-  // Setup Timer0 for a 488.28125Hz "phase correct PWM" wave (assuming a 16Mhz clock)
+  // Setup Timer0.
   // Timer0 can pwm either PD5 (OC0B) or PD6 (OC0A), we use PD6
+  //
+  // PD6 is wired to enable/disable the laser.  The other PSU input
+  // which allows to change the output current (via resistor or fast
+  // PWM) is not under our control.  The Coletech 100W PSU specifies
+  // the response time (to reach nominal current) to be <=1ms, which
+  // gives a rough idea about the minimum pulse duration.
+  //
   // TCCR0A and TCCR0B are the registers to setup Timer0
   // see chapter "8-bit Timer/Counter0 with PWM" in Atmga328 specs
   // OCR0A sets the duty cycle 0-255 corresponding to 0-100%
   // also see: http://arduino.cc/en/Tutorial/SecretsOfArduinoPWM
-  DDRD |= (1 << DDD6);      // set PD6 as an output
-  OCR0A = 0;              // set PWM to a 0% duty cycle
-  TCCR0A = _BV(COM0A1) | _BV(WGM00);   // phase correct PWM mode
-  // TCCR0A = _BV(COM0A1) | _BV(WGM01) | _BV(WGM00);  // fast PWM mode
-  // prescaler: PWMfreq = 16000/(2*256*prescaler)
-  // TCCR0B = _BV(CS00);                // 1 => 31.3kHz
-  // TCCR0B = _BV(CS01);                // 8 => 3.9kHz
-  TCCR0B = _BV(CS01) | _BV(CS00);    // 64 => 489Hz
-  // TCCR0B = _BV(CS02);                // 256 => 122Hz
-  // TCCR0B = _BV(CS02) | _BV(CS00);    // 1024 => 31Hz
-  // NOTES:
-  // PPI = PWMfreq/(feedrate/25.4/60)
+  //
+  // Timer0 is used to fully enable or disable the laser for a whole
+  // timer period, rather than as a PWM. This allows to control
+  // precisely the position where a pulse starts in raster mode.
+  //
+  // Note: An alternative would be to use the AVR timer to create
+  // one-shot pulses, but we'd have to change the output pin to PD5:
+  // http://hackaday.com/2015/03/24/avr-hardware-timer-tricked-into-one-shot/
+
+  DDRD |= (1 << DDD6);    // set PD6 as an output
+  OCR0A = 0;              // disable
+  // Control register setup:
+  // - phase-correct PWM (because it allows both always-on and always-off)
+  // - OC0A: output (non-inverted)
+  // - OC0B: disconnected
+  // - prescaler: 1 (options: 1, 8, 64, 256, 1024)
+  // - period = prescaler*510/16Mhz = 31.875us
+  TCCR0A = _BV(COM0A1) | _BV(WGM00);
+  TCCR0B = _BV(CS00);
+  TIMSK0 |= _BV(TOIE0); // Enable Timer0 overflow interrupt
 
   //// air and aux assist control
   ASSIST_DDR |= (1 << AIR_ASSIST_BIT);   // set as output pin
@@ -67,11 +83,32 @@ void control_init() {
 }
 
 
-void control_laser_intensity(uint8_t intensity) {
-  OCR0A = intensity;
+static volatile uint8_t pulse_remaining = 0;
+static volatile uint16_t next_pulse_delay = 0;
+static volatile uint8_t next_pulse_duration = 0;
+
+void control_laser_pulse(uint8_t duration, uint16_t delay) {
+  cli();
+  next_pulse_delay = delay + 1;
+  next_pulse_duration = duration;
+  sei();
 }
 
-
+// Laser ISR
+ISR(TIMER0_OVF_vect) {
+  if (next_pulse_delay > 0) {
+    next_pulse_delay--;
+    if (next_pulse_delay == 0) {
+      pulse_remaining = next_pulse_duration;
+    }
+  }
+  if (pulse_remaining > 0) {
+    OCR0A = 255;
+    pulse_remaining--;
+  }  else {
+    OCR0A = 0;
+  }
+}
 
 void control_air_assist(bool enable) {
   if (enable) {

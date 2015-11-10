@@ -55,7 +55,8 @@ typedef struct {
   double entry_speed;                 // Entry speed at previous-current junction in mm/min
   double vmax_junction;               // max junction speed (mm/min) based on angle between segments, accel and deviation settings
   double millimeters;                 // The total travel of this block in mm
-  uint8_t nominal_laser_intensity;    // 0-255 is 0-100% percentage
+  uint32_t steps_per_pulse;           // microsteps per laser pulse (always more than one), scaled by a constant
+  uint8_t pulse_duration;             // laser pulse duration (if not in raster mode)
   bool recalculate_flag;              // Planner flag to recalculate trapezoids on entry junction
   bool nominal_length_flag;           // Planner flag for nominal speed always reached
   // Settings for the trapezoid generator
@@ -64,8 +65,6 @@ typedef struct {
   int32_t rate_delta;                 // The steps/minute to add or subtract when changing speed (must be positive)
   uint32_t accelerate_until;          // The index of the step event on which to stop acceleration
   uint32_t decelerate_after;          // The index of the step event on which to start decelerating
-
-  uint16_t pixel_steps;               // Number of steps for each raster pixel (only in TYPE_RASTER_LINE)
 } block_t;
       
 // Initialize the motion plan subsystem      
@@ -74,7 +73,7 @@ void planner_init();
 // Add a new linear movement to the buffer.
 // x, y and z is the signed, absolute target position in millimaters.
 // Feed rate specifies the speed of the motion.
-void planner_line(double x, double y, double z, double feed_rate, uint8_t nominal_laser_intensity, uint16_t pixel_width);
+void planner_line(double x, double y, double z, double feed_rate, uint8_t nominal_laser_intensity, double pulses_per_mm, bool raster_mode);
 
 // Add a new piercing action, lasing at one spot.
 void planner_dwell(double seconds, uint8_t nominal_laser_intensity);

@@ -52,7 +52,7 @@ markers_tx = {
     "f": "PARAM_FEEDRATE",
     "s": "PARAM_INTENSITY",
     "d": "PARAM_DURATION",
-    "p": "PARAM_PIXEL_WIDTH",
+    "p": "PARAM_PULSES_PER_MM",
     "h": "PARAM_OFFTABLE_X",
     "i": "PARAM_OFFTABLE_Y",
     "j": "PARAM_OFFTABLE_Z",
@@ -104,7 +104,7 @@ markers_rx = {
     'g': "INFO_FEEDRATE",
     'h': "INFO_INTENSITY",
     'i': "INFO_DURATION",
-    'j': "INFO_PIXEL_WIDTH",
+    'j': "INFO_PULSES_PER_MM",
 }
 
 # create a global constant for each of the names above
@@ -194,7 +194,7 @@ class SerialLoopClass(threading.Thread):
             'feedrate': 0.0,
             'intensity': 0.0,
             'duration': 0.0,
-            'pixelwidth': 0.0
+            'pulses_per_mm': 0.0
         }
         self._s = copy.deepcopy(self._status)
 
@@ -402,8 +402,8 @@ class SerialLoopClass(threading.Thread):
                     self._s['intensity'] = num
                 elif char == INFO_DURATION:
                     self._s['duration'] = num
-                elif char == INFO_PIXEL_WIDTH:
-                    self._s['pixelwidth'] = num
+                elif char == INFO_PULSES_PER_MM:
+                    self._s['pulses_per_mm'] = num
                 elif char == INFO_STACK_CLEARANCE:
                     self._s['stackclear'] = num
                 else:
@@ -681,10 +681,10 @@ def duration(val):
     with SerialLoop.lock:
         SerialLoop.send_param(PARAM_DURATION, val)
 
-def pixelwidth(val):
+def pulses_per_mm(val):
     global SerialLoop
     with SerialLoop.lock:
-        SerialLoop.send_param(PARAM_PIXEL_WIDTH, val)
+        SerialLoop.send_param(PARAM_PULSES_PER_MM, val)
 
 def relative():
     global SerialLoop

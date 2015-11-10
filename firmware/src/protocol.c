@@ -98,7 +98,7 @@ typedef struct {
   double feedrate;                 // mm/min {F}
   uint8_t intensity;               // 0-255 percentage
   double duration;                 // pierce duration
-  double pixel_width;              // raster pixel width in mm
+  double pulses_per_mm;            // laser pulses per mm
   uint8_t offselect;               // {OFFSET_TABLE, OFFSET_CUSTOM}
   double target[3];                // X,Y,Z params accumulated
   double offsets[6];               // coord system offsets [table_X,table_Y,table_Z, custom_X,custom_Y,custom_Z]
@@ -128,7 +128,7 @@ void protocol_init() {
   st.intensity = 0;
   clear_vector(st.target);
   st.duration = 0.0;
-  st.pixel_width = 0.0;
+  st.pulses_per_mm = 0.0;
   st.offselect = OFFSET_TABLE;
   // table offset, absolute
   st.offsets[X_AXIS] = CONFIG_X_ORIGIN_OFFSET;
@@ -186,14 +186,13 @@ void on_cmd(uint8_t command) {
   switch(command) {
     case CMD_NONE:
       break;
-    case CMD_LINE: case CMD_RASTER:
-        if(command == CMD_RASTER) {
-          planner_line( st.target[X_AXIS], st.target[Y_AXIS], st.target[Z_AXIS], 
-                        st.feedrate, st.intensity, st.pixel_width );
-        } else {
-          planner_line( st.target[X_AXIS], st.target[Y_AXIS], st.target[Z_AXIS], 
-                        st.feedrate, st.intensity, 0 );
-        }
+    case CMD_LINE:
+      planner_line( st.target[X_AXIS], st.target[Y_AXIS], st.target[Z_AXIS],
+                    st.feedrate, st.intensity, st.pulses_per_mm, false);
+      break;
+    case CMD_RASTER:
+      planner_line( st.target[X_AXIS], st.target[Y_AXIS], st.target[Z_AXIS],
+                    st.feedrate, st.intensity, st.pulses_per_mm, true);
       break;
     case CMD_DWELL:
       planner_dwell(st.duration, st.intensity);
@@ -226,7 +225,7 @@ void on_cmd(uint8_t command) {
       st.target[Y_AXIS] = st.offsets[TABLEOFF_Y];
       st.target[Z_AXIS] = st.offsets[TABLEOFF_Z];         
       planner_line( st.target[X_AXIS], st.target[Y_AXIS], st.target[Z_AXIS], 
-                    st.feedrate, 0, 0 );
+                    st.feedrate, 0, 0, false );
       break;
     case CMD_SET_OFFSET_TABLE: case CMD_SET_OFFSET_CUSTOM:
       while(stepper_processing()) { 
@@ -307,12 +306,14 @@ void on_param(uint8_t parameter) {
         break;
       case PARAM_INTENSITY:
         st.intensity = get_curent_value();
+        st.pulses_per_mm = 0; // will be calculated from intensity
         break;
       case PARAM_DURATION:
         st.duration = get_curent_value();
         break;
-      case PARAM_PIXEL_WIDTH:
-        st.pixel_width = get_curent_value();
+      case PARAM_PULSES_PER_MM:
+        st.pulses_per_mm = get_curent_value();
+        st.intensity = 0; // not used in pulses_per_mm mode
         break;
 
       // def table offset, val is absolute
@@ -471,7 +472,7 @@ void protocol_idle() {
       serial_write_param(INFO_FEEDRATE, st.feedrate);
       serial_write_param(INFO_INTENSITY, st.intensity);
       serial_write_param(INFO_DURATION, st.duration);
-      serial_write_param(INFO_PIXEL_WIDTH, st.pixel_width);
+      serial_write_param(INFO_PULSES_PER_MM, st.pulses_per_mm);
     }
 
     serial_write(STATUS_END);

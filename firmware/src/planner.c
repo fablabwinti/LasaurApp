@@ -67,7 +67,7 @@ void planner_init() {
 
 // Add a new linear movement to the buffer. x, y and z is 
 // the signed, absolute target position in millimeters. Feed rate specifies the speed of the motion.
-void planner_line(double x, double y, double z, double feed_rate, uint8_t nominal_laser_intensity, uint16_t pixel_width) {
+void planner_line(double x, double y, double z, double feed_rate, uint8_t nominal_laser_intensity, double pulses_per_mm, bool raster_mode) {
   // calculate target position in absolute steps
   int32_t target[3];
   target[X_AXIS] = lround(x*CONFIG_X_STEPS_PER_MM);
@@ -84,17 +84,12 @@ void planner_line(double x, double y, double z, double feed_rate, uint8_t nomina
   
   // prepare to set up new block
   block_t *block = &block_buffer[block_buffer_head];
-  
-  // set block type to line command
-  if (pixel_width != 0) {
+
+  if (raster_mode) {
     block->type = TYPE_RASTER_LINE;
-    block->pixel_steps = lround(pixel_width*CONFIG_X_STEPS_PER_MM);
   } else {
     block->type = TYPE_LINE;
   }
-
-  // set nominal laser intensity
-  block->nominal_laser_intensity = nominal_laser_intensity;
 
   // compute direction bits for this block
   block->direction_bits = 0;
@@ -125,6 +120,48 @@ void planner_line(double x, double y, double z, double feed_rate, uint8_t nomina
   block->nominal_speed = block->millimeters * inverse_minute; // always > 0
   block->nominal_rate = ceil(block->step_event_count * inverse_minute); // always > 0
   
+  // pulses_per_mm values:
+  //
+  // upper hard limit:  90.0 - one pulse every microstep
+  //                 :  19.0 - probably a good default (160px raster end-position error: 0.5% of the raster spacing)
+  //                 :  10.0 - 0.1mm spacing
+  // lower soft limit:   2.5 - 0.4mm spacing (160px raster end-position error: 3% of the raster spacing)
+  //                 :   0.1 - 10mm spacing  (160px raster end-position error: 90% - off by a full dot, because of the serial protocol parameter resolution)
+  const double default_pulses_per_mm = 19.0;
+  const uint8_t default_pulse_duration = 8;
+
+  block->pulse_duration = default_pulse_duration;
+  if (pulses_per_mm == 0) {
+    const double pulse_duration_to_minutes = 31.875e-6/60.0; // see control_init()
+    // 1. calculate desired pulse duration and round to feasible values
+    double pulse_duration = nominal_laser_intensity/255.0 /
+      (feed_rate * default_pulses_per_mm * pulse_duration_to_minutes);
+    pulse_duration = round(pulse_duration);
+    if (pulse_duration > 255) {
+      block->pulse_duration = 255;
+    } else if (pulse_duration < 2) {
+      block->pulse_duration = 2;
+    } else {
+      block->pulse_duration = pulse_duration;
+    }
+    // 2. calculate precise pulses_per_mm
+    pulses_per_mm = nominal_laser_intensity/255.0 / (block->pulse_duration * pulse_duration_to_minutes * feed_rate);
+    if (nominal_laser_intensity >= 255) {
+      // make sure pulses overlap slightly
+      pulses_per_mm *= 1.05;
+    }
+  }
+  if (pulses_per_mm == 0) {
+    block->steps_per_pulse = 0;
+    block->pulse_duration = 0;
+  } else {
+    const double one_step = (1<<14); // fixed-point integer scaling, same as in stepper.c
+    block->steps_per_pulse = round(block->step_event_count / (pulses_per_mm * block->millimeters) * one_step);
+    if (block->steps_per_pulse < one_step) {
+      block->steps_per_pulse = one_step;
+    }
+  }
+
   // compute the acceleration rate for this block. (step/min/acceleration_tick)
   block->rate_delta = ceil( block->step_event_count * inverse_millimeters 
                             * CONFIG_ACCELERATION / (60 * ACCELERATION_TICKS_PER_SECOND) );
