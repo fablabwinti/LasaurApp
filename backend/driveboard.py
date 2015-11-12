@@ -19,14 +19,11 @@ markers_tx = {
     "\x03": "CMD_STATUS",
     "\x04": "CMD_SUPERSTATUS",
     "\x05": "CMD_CHUNK_PROCESSED",
-    "\x07": "CMD_RASTER_DATA_START",
-    "\x08": "CMD_RASTER_DATA_END",
     "\x09": "STATUS_END",
 
     "A": "CMD_NONE",
     "B": "CMD_LINE",
     "C": "CMD_DWELL",
-    "D": "CMD_RASTER",
 
     "E": "CMD_REF_RELATIVE",
     "F": "CMD_REF_ABSOLUTE",
@@ -53,6 +50,7 @@ markers_tx = {
     "s": "PARAM_INTENSITY",
     "d": "PARAM_DURATION",
     "p": "PARAM_PULSES_PER_MM",
+    "r": "PARAM_RASTER_BYTES",
     "h": "PARAM_OFFTABLE_X",
     "i": "PARAM_OFFTABLE_Y",
     "j": "PARAM_OFFTABLE_Z",
@@ -130,6 +128,7 @@ class SerialLoopClass(threading.Thread):
         self.TX_CHUNK_SIZE = 16
         self.RX_CHUNK_SIZE = 32
         self.FIRMBUF_SIZE = 256  # needs to match device firmware
+        self.RASTER_BYTES_MAX = 60  # needs to match device firmware
         self.firmbuf_used = 0
 
         # used for calculating percentage done
@@ -219,6 +218,13 @@ class SerialLoopClass(threading.Thread):
         self.tx_buffer.append(param)
         self.job_size += 5
 
+
+    def send_raster_data(self, data):
+        for c in data:
+            v = ord(c) + 128
+            assert v <= 255
+            self.tx_buffer.append(chr(v))
+        self.job_size += len(data)
 
 
     def run(self):
@@ -705,13 +711,15 @@ def move(x, y, z=0.0):
         SerialLoop.send_param(PARAM_TARGET_Z, z)
         SerialLoop.send_command(CMD_LINE)
 
-def rastermove(x, y, z=0.0):
+def raster_move(x, y, data):
     global SerialLoop
     with SerialLoop.lock:
+        assert len(data) <= SerialLoop.RASTER_BYTES_MAX
         SerialLoop.send_param(PARAM_TARGET_X, x)
         SerialLoop.send_param(PARAM_TARGET_Y, y)
-        SerialLoop.send_param(PARAM_TARGET_Z, z)
-        SerialLoop.send_command(CMD_RASTER)
+        SerialLoop.send_param(PARAM_RASTER_BYTES, len(data))
+        SerialLoop.send_command(CMD_LINE)
+        SerialLoop.send_raster_data(data)
 
 
 

@@ -72,8 +72,6 @@ bool buffer_underrun_marked = false;
 volatile bool notify_chunk_processed = false;
 uint8_t rx_buffer_processed = 0;
 
-volatile bool raster_mode = false;
-
 uint8_t serial_read();
 
 
@@ -120,7 +118,7 @@ void serial_write(uint8_t data) {
   tx_buffer[tx_buffer_head] = data;
   tx_buffer_head = next_head;
   
-	UCSR0B |=  (1 << UDRIE0);  // enable tx interrupt 
+  UCSR0B |= (1 << UDRIE0);  // enable tx interrupt
 }
 
 
@@ -156,17 +154,17 @@ ISR(USART_UDRE_vect) {
 
 uint8_t serial_read() {
   // return data, advance tail
+  cli();
   uint8_t data = rx_buffer[rx_buffer_tail];
   if (++rx_buffer_tail == RX_BUFFER_SIZE) {rx_buffer_tail = 0;}  // increment  
   rx_buffer_open_slots++;
-  // ATOMIC_BLOCK(ATOMIC_FORCEON) {
-    rx_buffer_processed++;
-    if (rx_buffer_processed == RX_CHUNK_SIZE) {
-      notify_chunk_processed = true;
-      UCSR0B |=  (1 << UDRIE0);  // enable tx interrupt
-      rx_buffer_processed = 0;
-    }
-  // }
+  rx_buffer_processed++;
+  if (rx_buffer_processed == RX_CHUNK_SIZE) {
+    notify_chunk_processed = true;
+    UCSR0B |=  (1 << UDRIE0);  // enable tx interrupt (to acknowledge the chunk)
+    rx_buffer_processed = 0;
+  }
+  sei();
   return data;
 }
 
@@ -223,14 +221,6 @@ ISR(USART_RX_vect) {
 
 uint8_t serial_protocol_read() {
   // called from protocol loop
-  while (raster_mode) {
-    // Block while in raster mode.
-    // In this mode the serial inerrupt provides data
-    // in the rx_buffer which get directly consumed
-    // by the stepper interrupt.
-    // sleep_mode();  // sleep a tiny bit
-    protocol_idle();
-  }
   // wait, buffer empty
   buffer_underrun_marked = false;
   while (rx_buffer_tail == rx_buffer_head) {
@@ -241,69 +231,7 @@ uint8_t serial_protocol_read() {
     }
     protocol_idle();
   }
-  // we have non-raster data
-  uint8_t data = serial_read();
-  if (data == CMD_RASTER_DATA_START) {
-    raster_mode = true;
-    // comsume the byte, return next non-raster byte
-    // wait, raster mode
-    while (raster_mode) {
-      // sleep_mode();
-      protocol_idle();
-    }
-    // wait, buffer empty
-    buffer_underrun_marked = false;
-    while (rx_buffer_tail == rx_buffer_head) {
-      // sleep_mode();
-      if (!buffer_underrun_marked) {
-        protocol_mark_underrun();
-        buffer_underrun_marked = true;
-      }
-      protocol_idle();
-    }
-    // back to normal mode
-    return serial_read();
-  } else {
-    return data;
-  }
-}
-
-
-uint8_t serial_raster_read() {
-  /** raster buffer ********************************
-  * The rx_buffer doubles as a raster buffer. This *
-  * depends on the right sequence of commands:     *
-  * accel-line, raster-line, decel-line            *
-  * and then streaming of raster-data.             *
-  * serial_protocol_read enters the raster_mode    *
-  * serial_raster_read exits it. During the raster *
-  * streaming serial_protocol_read is blocking and *
-  * serial_raster_read gets called from the        *
-  * interrupt while executing the raster line.     *
-  * To exit the raster_mode, all the raster data   *
-  * and one more needs to be read.                 *
-  *************************************************/
-  // called from stepper interrupt
-  if (raster_mode) {
-    if (rx_buffer_tail == rx_buffer_head) {
-      // oops, no raster data, sending side is flaking
-      // rastering too fast or serial transmission too slow
-      protocol_mark_underrun();
-      return 0;
-    } else {
-      uint8_t data = serial_read();
-      if (data == CMD_RASTER_DATA_END) {
-        raster_mode = false;
-        return 0;
-      } else {
-        return data;
-      }
-    }
-  } else {
-    // oops, not even in raster mode
-    // sending side seems to be flaking
-    return 0;
-  }
+  return serial_read();
 }
 
 

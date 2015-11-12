@@ -26,14 +26,17 @@
 #include "stepper.h"
 #include "config.h"
 #include "protocol.h"
+#include "serial.h"
 
 
 // The number of linear motions that can be in the plan at any give time
-#define BLOCK_BUFFER_SIZE 14  // do not make bigger than uint8_t
-
+#define BLOCK_BUFFER_SIZE 10  // do not make bigger than uint8_t
 static block_t block_buffer[BLOCK_BUFFER_SIZE];  // ring buffer for motion instructions
 static volatile uint8_t block_buffer_head;       // index of the next block to be pushed
 static volatile uint8_t block_buffer_tail;       // index of the block to process now
+
+#define RASTER_BUFFER_SIZE 4
+static raster_t raster_buffer[RASTER_BUFFER_SIZE];
 
 static int32_t position[3];             // The current position of the tool in absolute steps
 static double previous_unit_vec[3];     // Unit vector of previous path line segment
@@ -42,6 +45,7 @@ static double previous_nominal_speed;   // Nominal speed of previous path line s
 // prototypes for static functions (non-accesible from other files)
 static int8_t next_block_index(int8_t block_index);
 static int8_t prev_block_index(int8_t block_index);
+static raster_t * find_free_raster_buffer();
 static double estimate_acceleration_distance(double initial_rate, double target_rate, double acceleration);
 static double intersection_distance(double initial_rate, double final_rate, double acceleration, double distance);
 static double max_allowable_speed(double acceleration, double target_velocity, double distance);
@@ -67,7 +71,8 @@ void planner_init() {
 
 // Add a new linear movement to the buffer. x, y and z is 
 // the signed, absolute target position in millimeters. Feed rate specifies the speed of the motion.
-void planner_line(double x, double y, double z, double feed_rate, uint8_t nominal_laser_intensity, double pulses_per_mm, bool raster_mode) {
+void planner_line(double x, double y, double z, double feed_rate,
+                  uint8_t nominal_laser_intensity, double pulses_per_mm, uint8_t raster_bytes) {
   // calculate target position in absolute steps
   int32_t target[3];
   target[X_AXIS] = lround(x*CONFIG_X_STEPS_PER_MM);
@@ -84,11 +89,32 @@ void planner_line(double x, double y, double z, double feed_rate, uint8_t nomina
   
   // prepare to set up new block
   block_t *block = &block_buffer[block_buffer_head];
+  block->type = TYPE_LINE;
 
-  if (raster_mode) {
-    block->type = TYPE_RASTER_LINE;
+  if (raster_bytes == 0) {
+    block->raster = NULL;
   } else {
-    block->type = TYPE_LINE;
+    block->raster = find_free_raster_buffer();
+    while (!block->raster) {
+      // wait for a raster buffer to finish
+      protocol_idle();
+      block->raster = find_free_raster_buffer();
+    }
+    if (raster_bytes > RASTER_BYTES_MAX) {
+      stepper_request_stop(STOPERROR_INVALID_COMMAND);
+      return;
+    }
+    block->raster->length = raster_bytes;
+    // receive data
+    uint8_t * buf = block->raster->data;
+    for (int i=0; i<raster_bytes; i++) {
+      uint8_t chr = serial_protocol_read(); // blocking until there is data
+      if (chr < 128) {
+        stepper_request_stop(STOPERROR_INVALID_DATA);
+        return;
+      }
+      buf[i] = chr - 128;
+    }
   }
 
   // compute direction bits for this block
@@ -162,10 +188,14 @@ void planner_line(double x, double y, double z, double feed_rate, uint8_t nomina
     }
   }
 
+  if (raster_bytes > 0) {
+    block->pulse_duration = 0; // used when running out of data
+  }
+
+
   // compute the acceleration rate for this block. (step/min/acceleration_tick)
   block->rate_delta = ceil( block->step_event_count * inverse_millimeters 
                             * CONFIG_ACCELERATION / (60 * ACCELERATION_TICKS_PER_SECOND) );
-
 
   //// acceleeration manager calculations
   // Compute path unit vector                            
@@ -265,6 +295,9 @@ void planner_command(uint8_t type) {
   // set block type command
   block->type = type;
 
+  // mark raster buffer as unused
+  block->raster = NULL;
+
   // Move buffer head
   block_buffer_head = next_buffer_head;
 
@@ -307,7 +340,6 @@ void planner_set_position(double x, double y, double z) {
 }
 
 
-
 // Returns the index of the next block in the ring buffer.
 static int8_t next_block_index(int8_t block_index) {
   block_index++;
@@ -320,6 +352,30 @@ static int8_t prev_block_index(int8_t block_index) {
   if (block_index == 0) { block_index = BLOCK_BUFFER_SIZE; }
   block_index--;
   return block_index;
+}
+
+static raster_t * find_free_raster_buffer()
+{
+  raster_t * result = NULL;
+  // note: this is not terribly efficient
+  // however this method can use all raster buffers
+  for (int i=0; i<RASTER_BUFFER_SIZE; i++) {
+    bool free = true;
+    int8_t block_index = block_buffer_tail;
+    while(block_index != block_buffer_head) {
+      raster_t * raster = block_buffer[block_index].raster;
+      if (raster == &raster_buffer[i]) {
+        free = false;
+        // break;
+      }
+      block_index = next_block_index(block_index);
+    }
+    if (free) {
+      result = &raster_buffer[i];
+      //return result;
+    }
+  }
+  return result;
 }
 
 

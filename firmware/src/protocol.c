@@ -102,6 +102,7 @@ typedef struct {
   uint8_t offselect;               // {OFFSET_TABLE, OFFSET_CUSTOM}
   double target[3];                // X,Y,Z params accumulated
   double offsets[6];               // coord system offsets [table_X,table_Y,table_Z, custom_X,custom_Y,custom_Z]
+  uint8_t raster_bytes;            // number of bytes for next raster move
 } state_t;
 static state_t st;
 
@@ -129,6 +130,7 @@ void protocol_init() {
   clear_vector(st.target);
   st.duration = 0.0;
   st.pulses_per_mm = 0.0;
+  st.raster_bytes = 0;
   st.offselect = OFFSET_TABLE;
   // table offset, absolute
   st.offsets[X_AXIS] = CONFIG_X_ORIGIN_OFFSET;
@@ -188,11 +190,8 @@ void on_cmd(uint8_t command) {
       break;
     case CMD_LINE:
       planner_line( st.target[X_AXIS], st.target[Y_AXIS], st.target[Z_AXIS],
-                    st.feedrate, st.intensity, st.pulses_per_mm, false);
-      break;
-    case CMD_RASTER:
-      planner_line( st.target[X_AXIS], st.target[Y_AXIS], st.target[Z_AXIS],
-                    st.feedrate, st.intensity, st.pulses_per_mm, true);
+                    st.feedrate, st.intensity, st.pulses_per_mm, st.raster_bytes);
+      st.raster_bytes = 0;
       break;
     case CMD_DWELL:
       planner_dwell(st.duration, st.intensity);
@@ -225,7 +224,7 @@ void on_cmd(uint8_t command) {
       st.target[Y_AXIS] = st.offsets[TABLEOFF_Y];
       st.target[Z_AXIS] = st.offsets[TABLEOFF_Z];         
       planner_line( st.target[X_AXIS], st.target[Y_AXIS], st.target[Z_AXIS], 
-                    st.feedrate, 0, 0, false );
+                    st.feedrate, 0, 0, 0 );
       break;
     case CMD_SET_OFFSET_TABLE: case CMD_SET_OFFSET_CUSTOM:
       while(stepper_processing()) { 
@@ -314,6 +313,9 @@ void on_param(uint8_t parameter) {
       case PARAM_PULSES_PER_MM:
         st.pulses_per_mm = get_curent_value();
         st.intensity = 0; // not used in pulses_per_mm mode
+        break;
+      case PARAM_RASTER_BYTES:
+        st.raster_bytes = get_curent_value();
         break;
 
       // def table offset, val is absolute

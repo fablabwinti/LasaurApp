@@ -69,6 +69,8 @@ static int32_t counter_x,       // Counter variables for the bresenham line trac
                counter_z;
 static uint32_t step_events_completed; // The number of step events executed in the current block
 static uint32_t steps_until_next_pulse; // Steps remaining, scaled by a constant
+static uint8_t raster_data_remaining; // number of bytes remaining
+static uint8_t * raster_data_next; // pointer to next raster byte
 static volatile bool busy;  // true whe stepper ISR is in already running
 
 // Variables used by the trapezoid generation
@@ -272,7 +274,7 @@ ISR(TIMER1_COMPA_vect) {
       busy = false;
       return;       
     }      
-    if (current_block->type == TYPE_LINE || current_block->type == TYPE_RASTER_LINE) {
+    if (current_block->type == TYPE_LINE) {
       // starting on new line block
       adjusted_rate = current_block->initial_rate;
       acceleration_tick_counter = CYCLES_PER_ACCELERATION_TICK/2; // start halfway, midpoint rule.
@@ -281,15 +283,29 @@ ISR(TIMER1_COMPA_vect) {
       counter_y = counter_x;
       counter_z = counter_x;
       step_events_completed = 0;
-      if (steps_until_next_pulse > current_block->steps_per_pulse) {
-        steps_until_next_pulse = current_block->steps_per_pulse;
+
+      if (current_block->raster) {
+        raster_data_next = current_block->raster->data;
+        raster_data_remaining = current_block->raster->length;
+      } else {
+        raster_data_remaining = 0;
+      }
+      
+      if (current_block->pulse_duration == 0) {
+        // travel move or raster move - re-align, don't accumulate error
+        steps_until_next_pulse = 0;
+      } else {
+        // lasing move (non-raster)
+        if (steps_until_next_pulse > current_block->steps_per_pulse) {
+          steps_until_next_pulse = current_block->steps_per_pulse;
+        }
       }
     }
   }
 
   // process current block, populate out_bits (or handle other commands)
   switch (current_block->type) {
-    case TYPE_LINE: case TYPE_RASTER_LINE:
+    case TYPE_LINE:
       ////// Execute step displacement profile by bresenham line algorithm
       out_bits = current_block->direction_bits;
       counter_x += current_block->steps_x;
@@ -333,10 +349,7 @@ ISR(TIMER1_COMPA_vect) {
       out_bits ^= INVERT_MASK;
 
       ////////// LASER CONTROL
-      if (current_block->pulse_duration == 0) {
-        // travel move: the next lasing move can start aligned with a pulse
-        steps_until_next_pulse = 0;
-      } else {
+      if (current_block->pulse_duration || raster_data_remaining) {
         const uint32_t one_step = (1<<14); // same as in planner.c
         if (steps_until_next_pulse < one_step) {
           // delay the laser pulse by a fraction of a microstep (but never longer than 200ms)
@@ -350,17 +363,12 @@ ISR(TIMER1_COMPA_vect) {
           uint16_t pulse_delay = (steps_until_next_pulse * (cycles_per_step_limited >> 4)) >> (14+9-4);
           //                      <-------14bit ------->    <------- 22bit ------->      |
           //                      <---------------------32bit---------------------------->
-          if (current_block->type == TYPE_RASTER_LINE) {
-            // disable nested interrupts, to prevent race conditions
-            // with the serial interrupt over the rx_buffer variables.
-            cli();
-            uint8_t chr = serial_raster_read(); // non-blocking
-            sei();
-            // map [128,255] to laser pulse duration
-            control_laser_pulse(chr-128, pulse_delay);
-          } else {
-            control_laser_pulse(current_block->pulse_duration, pulse_delay);
+          uint8_t pulse_duration = current_block->pulse_duration;
+          if (raster_data_remaining) {
+            raster_data_remaining--;
+            pulse_duration = *raster_data_next++;
           }
+          control_laser_pulse(pulse_duration, pulse_delay);
           steps_until_next_pulse += current_block->steps_per_pulse;
         }
         steps_until_next_pulse -= one_step;
