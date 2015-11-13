@@ -72,7 +72,7 @@ void planner_init() {
 // Add a new linear movement to the buffer. x, y and z is 
 // the signed, absolute target position in millimeters. Feed rate specifies the speed of the motion.
 void planner_line(double x, double y, double z, double feed_rate,
-                  uint8_t nominal_laser_intensity, double pulses_per_mm, uint8_t raster_bytes) {
+                  double pulses_per_mm, uint8_t pulse_duration, uint8_t raster_bytes) {
   // calculate target position in absolute steps
   int32_t target[3];
   target[X_AXIS] = lround(x*CONFIG_X_STEPS_PER_MM);
@@ -101,7 +101,7 @@ void planner_line(double x, double y, double z, double feed_rate,
       block->raster = find_free_raster_buffer();
     }
     if (raster_bytes > RASTER_BYTES_MAX) {
-      stepper_request_stop(STOPERROR_INVALID_COMMAND);
+      stepper_request_stop(STOPERROR_VALUE_OUT_OF_RANGE);
       return;
     }
     block->raster->length = raster_bytes;
@@ -145,46 +145,17 @@ void planner_line(double x, double y, double z, double feed_rate,
   double inverse_minute = feed_rate * inverse_millimeters;
   block->nominal_speed = block->millimeters * inverse_minute; // always > 0
   block->nominal_rate = ceil(block->step_event_count * inverse_minute); // always > 0
-  
-  // pulses_per_mm values:
-  //
-  // upper hard limit:  90.0 - one pulse every microstep
-  //                 :  19.0 - probably a good default (160px raster end-position error: 0.5% of the raster spacing)
-  //                 :  10.0 - 0.1mm spacing
-  // lower soft limit:   2.5 - 0.4mm spacing (160px raster end-position error: 3% of the raster spacing)
-  //                 :   0.1 - 10mm spacing  (160px raster end-position error: 90% - off by a full dot, because of the serial protocol parameter resolution)
-  const double default_pulses_per_mm = 19.0;
-  const uint8_t default_pulse_duration = 8;
 
-  block->pulse_duration = default_pulse_duration;
   if (pulses_per_mm == 0) {
-    const double pulse_duration_to_minutes = 31.875e-6/60.0; // see control_init()
-    // 1. calculate desired pulse duration and round to feasible values
-    double pulse_duration = nominal_laser_intensity/255.0 /
-      (feed_rate * default_pulses_per_mm * pulse_duration_to_minutes);
-    pulse_duration = round(pulse_duration);
-    if (pulse_duration > 255) {
-      block->pulse_duration = 255;
-    } else if (pulse_duration < 2) {
-      block->pulse_duration = 2;
-    } else {
-      block->pulse_duration = pulse_duration;
-    }
-    // 2. calculate precise pulses_per_mm
-    pulses_per_mm = nominal_laser_intensity/255.0 / (block->pulse_duration * pulse_duration_to_minutes * feed_rate);
-    if (nominal_laser_intensity >= 255) {
-      // make sure pulses overlap slightly
-      pulses_per_mm *= 1.05;
-    }
-  }
-  if (pulses_per_mm == 0) {
-    block->steps_per_pulse = 0;
     block->pulse_duration = 0;
+    block->steps_per_pulse = 0;
   } else {
+    block->pulse_duration = pulse_duration;
     const double one_step = (1<<14); // fixed-point integer scaling, same as in stepper.c
     block->steps_per_pulse = round(block->step_event_count / (pulses_per_mm * block->millimeters) * one_step);
     if (block->steps_per_pulse < one_step) {
-      block->steps_per_pulse = one_step;
+      stepper_request_stop(STOPERROR_VALUE_OUT_OF_RANGE);
+      return;
     }
   }
 
@@ -263,7 +234,7 @@ void planner_line(double x, double y, double z, double feed_rate,
 }
 
 
-void planner_dwell(double seconds, uint8_t nominal_laser_intensity) {
+//void planner_dwell(double seconds, uint8_t nominal_laser_intensity) {
 // // Execute dwell in seconds. Maximum time delay is > 18 hours, more than enough for any application.
 // void mc_dwell(double seconds) {
 //    uint16_t i = floor(seconds);
@@ -277,7 +248,7 @@ void planner_dwell(double seconds, uint8_t nominal_laser_intensity) {
 //      i--;
 //    }
 // }  
-}
+//}
 
 
 void planner_command(uint8_t type) {
@@ -356,9 +327,6 @@ static int8_t prev_block_index(int8_t block_index) {
 
 static raster_t * find_free_raster_buffer()
 {
-  raster_t * result = NULL;
-  // note: this is not terribly efficient
-  // however this method can use all raster buffers
   for (int i=0; i<RASTER_BUFFER_SIZE; i++) {
     bool free = true;
     int8_t block_index = block_buffer_tail;
@@ -366,16 +334,15 @@ static raster_t * find_free_raster_buffer()
       raster_t * raster = block_buffer[block_index].raster;
       if (raster == &raster_buffer[i]) {
         free = false;
-        // break;
+        break;
       }
       block_index = next_block_index(block_index);
     }
     if (free) {
-      result = &raster_buffer[i];
-      //return result;
+      return &raster_buffer[i];
     }
   }
-  return result;
+  return NULL;
 }
 
 

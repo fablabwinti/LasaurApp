@@ -56,9 +56,8 @@
 #define PARAM_TARGET_Y 'y' 
 #define PARAM_TARGET_Z 'z' 
 #define PARAM_FEEDRATE 'f'
-#define PARAM_INTENSITY 's'
-#define PARAM_DURATION 'd'
 #define PARAM_PULSES_PER_MM 'p'
+#define PARAM_PULSE_DURATION 'd'
 #define PARAM_RASTER_BYTES 'r'
 #define PARAM_OFFTABLE_X 'h'
 #define PARAM_OFFTABLE_Y 'i'
@@ -85,6 +84,7 @@
 #define STOPERROR_INVALID_DATA ':'
 #define STOPERROR_INVALID_COMMAND '<'
 #define STOPERROR_INVALID_PARAMETER '>'
+#define STOPERROR_VALUE_OUT_OF_RANGE '('
 #define STOPERROR_TRANSMISSION_ERROR '='
 #define STOPERROR_USART_DATA_OVERRUN ','
 
@@ -109,8 +109,7 @@
 #define INFO_OFFCUSTOM_Y 'b'
 #define INFO_OFFCUSTOM_Z 'c'
 #define INFO_FEEDRATE 'g'
-#define INFO_INTENSITY 'h'
-#define INFO_DURATION 'i'
+#define INFO_PULSE_DURATION 'i'
 #define INFO_PULSES_PER_MM 'j'
 
 

@@ -80,10 +80,7 @@ void planner_init();
 // x, y and z is the signed, absolute target position in millimaters.
 // Feed rate specifies the speed of the motion.
 void planner_line(double x, double y, double z, double feed_rate,
-                  uint8_t nominal_laser_intensity, double pulses_per_mm, uint8_t raster_bytes);
-
-// Add a new piercing action, lasing at one spot.
-void planner_dwell(double seconds, uint8_t nominal_laser_intensity);
+                  double pulses_per_mm, uint8_t pulse_duration, uint8_t raster_bytes);
 
 // Add a non-motion command to the queue.
 // Typical types are: TYPE_AIR_ASSIST_ENABLE, TYPE_AIR_ASSIST_DISABLE, ...
