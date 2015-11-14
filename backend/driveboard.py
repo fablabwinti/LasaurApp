@@ -220,8 +220,8 @@ class SerialLoopClass(threading.Thread):
 
 
     def send_raster_data(self, data):
-        for c in data:
-            v = ord(c) + 128
+        for byte in data:
+            v = byte + 128
             assert v <= 255
             # FIXME: not very memory efficient, check if it is a problem when large files are queued
             self.tx_buffer.append(chr(v))
@@ -792,12 +792,11 @@ def raster_line(x0, y0, x1, y1, data, move_to_start=True):
     with SerialLoop.lock:
         SerialLoop.send_param(PARAM_PULSES_PER_MM, ppmm)
     n = RASTER_BYTES_MAX
-    while data:
+    while len(data) > 0:
         chunk, data = data[:n], data[n:] 
         fac = float(len(data))/bytes_total
         x = fac*x0 + (1-fac)*x1
         y = fac*y0 + (1-fac)*y1
-        print '#', x, y, len(chunk)
         raster_move_raw(x, y, chunk)
     # restore previous pulses_per_mm
     with SerialLoop.lock:
