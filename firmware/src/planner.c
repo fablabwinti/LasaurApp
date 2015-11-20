@@ -27,6 +27,7 @@
 #include "config.h"
 #include "protocol.h"
 #include "serial.h"
+#include "laser.h"
 
 
 // The number of linear motions that can be in the plan at any give time
@@ -71,8 +72,8 @@ void planner_init() {
 
 // Add a new linear movement to the buffer. x, y and z is 
 // the signed, absolute target position in millimeters. Feed rate specifies the speed of the motion.
-void planner_line(double x, double y, double z, double feed_rate, uint8_t nominal_laser_intensity,
-                  double pixels_per_mm, uint8_t raster_bytes) {
+void planner_line(double x, double y, double z, double feed_rate,
+                  double pulse_frequency, uint8_t pulse_duration, uint8_t raster_bytes) {
   // calculate target position in absolute steps
   int32_t target[3];
   target[X_AXIS] = lround(x*CONFIG_X_STEPS_PER_MM);
@@ -115,11 +116,11 @@ void planner_line(double x, double y, double z, double feed_rate, uint8_t nomina
       }
       buf[i] = chr - 128;
     }
-    nominal_laser_intensity = 0; // used when running out of data
   }
 
-  // set nominal laser intensity
-  block->nominal_laser_intensity = nominal_laser_intensity;
+  // laser intensity
+  block->laser_pulse_duration = pulse_duration;
+  block->laser_pulse_frequency = (double)0x10000 * pulse_frequency * (LASER_IRQ_CYCLES / (1000000.0*CYCLES_PER_MICROSECOND));
 
   // compute direction bits for this block
   block->direction_bits = 0;
@@ -149,19 +150,6 @@ void planner_line(double x, double y, double z, double feed_rate, uint8_t nomina
   double inverse_minute = feed_rate * inverse_millimeters;
   block->nominal_speed = block->millimeters * inverse_minute; // always > 0
   block->nominal_rate = ceil(block->step_event_count * inverse_minute); // always > 0
-
-  if (pixels_per_mm == 0 || !raster_bytes) {
-    block->steps_per_pixel = 0;
-  } else {
-    // used in raster mode
-    const double one_step = (1<<14); // fixed-point integer scaling, same as in stepper.c
-    block->steps_per_pixel = round(block->step_event_count / (pixels_per_mm * block->millimeters) * one_step);
-    if (block->steps_per_pixel < one_step) {
-      stepper_request_stop(STOPERROR_VALUE_OUT_OF_RANGE);
-      return;
-    }
-  }
-
 
   // compute the acceleration rate for this block. (step/min/acceleration_tick)
   block->rate_delta = ceil( block->step_event_count * inverse_millimeters 
@@ -234,7 +222,7 @@ void planner_line(double x, double y, double z, double feed_rate, uint8_t nomina
 }
 
 
-void planner_dwell(double seconds, uint8_t nominal_laser_intensity) {
+//void planner_dwell(double seconds, uint8_t nominal_laser_intensity) {
 // // Execute dwell in seconds. Maximum time delay is > 18 hours, more than enough for any application.
 // void mc_dwell(double seconds) {
 //    uint16_t i = floor(seconds);
@@ -248,7 +236,7 @@ void planner_dwell(double seconds, uint8_t nominal_laser_intensity) {
 //      i--;
 //    }
 // }  
-}
+//}
 
 
 void planner_command(uint8_t type) {

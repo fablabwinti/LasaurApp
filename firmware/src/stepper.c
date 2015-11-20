@@ -52,10 +52,10 @@
 #include "protocol.h"
 #include "planner.h"
 #include "sense_control.h"
+#include "laser.h"
 #include "serial.h"  //for debug
 
 
-#define CYCLES_PER_MICROSECOND (F_CPU/1000000)  //16000000/1000000 = 16
 #define CYCLES_PER_ACCELERATION_TICK (F_CPU/ACCELERATION_TICKS_PER_SECOND)  // 16MHz/100 = 160000
 
 
@@ -68,9 +68,6 @@ static int32_t counter_x,       // Counter variables for the bresenham line trac
                counter_y,
                counter_z;
 static uint32_t step_events_completed; // The number of step events executed in the current block
-static uint32_t steps_until_next_pixel; // Steps remaining, scaled by a constant
-static uint8_t raster_data_remaining; // number of bytes remaining
-static uint8_t * raster_data_next; // pointer to next raster byte
 static volatile bool busy;  // true whe stepper ISR is in already running
 
 // Variables used by the trapezoid generation
@@ -86,7 +83,6 @@ static volatile uint8_t stop_status;          // yields the reason for a stop re
 static bool acceleration_tick();
 static void adjust_speed( uint32_t steps_per_minute );
 static uint32_t config_step_timer(uint32_t cycles);
-static void adjust_intensity( uint8_t intensity );
 
 
 // Initialize and start the stepper motor subsystem
@@ -144,7 +140,8 @@ void stepper_stop_processing() {
   current_block = NULL;
   // Disable stepper driver interrupt
   TIMSK1 &= ~(1<<OCIE1A);
-  control_laser_intensity(0);
+  laser_set_pulse_duration(0);
+  laser_set_pulse_frequency(0);
 }
 
 // is the stepper interrupt processing
@@ -285,13 +282,10 @@ ISR(TIMER1_COMPA_vect) {
       counter_z = counter_x;
       step_events_completed = 0;
       
-
       if (current_block->raster) {
-        raster_data_next = current_block->raster->data;
-        raster_data_remaining = current_block->raster->length;
-        steps_until_next_pixel = 0;
+        laser_start_raster(current_block->raster->data, current_block->raster->length);
       } else {
-        raster_data_remaining = 0;
+        laser_set_pulse_duration(current_block->laser_pulse_duration);
       }
     }
   }
@@ -380,23 +374,6 @@ ISR(TIMER1_COMPA_vect) {
           if (adjusted_rate != current_block->nominal_rate) {
             adjusted_rate = current_block->nominal_rate;
             adjust_speed( adjusted_rate );
-          }
-          // Special case raster line. 
-          // Adjust intensity according raster buffer.
-          if (current_block->steps_per_pixel) {
-            const uint32_t one_step = (1<<14); // same as in planner.c
-            if (steps_until_next_pixel < one_step) {
-              if (raster_data_remaining) {
-                raster_data_remaining--;
-                uint8_t chr = *raster_data_next++;
-                // map [0, 127] -> [0, 255]
-                adjust_intensity(chr*255/127);
-              } else {
-                adjust_intensity(current_block->nominal_laser_intensity);
-              }
-              steps_until_next_pixel += current_block->steps_per_pixel;
-            }
-            steps_until_next_pixel -= one_step;
           }
         }
       } else {  // block finished
@@ -509,27 +486,9 @@ void adjust_speed( uint32_t steps_per_minute ) {
   if (steps_per_minute < MINIMUM_STEPS_PER_MINUTE) { steps_per_minute = MINIMUM_STEPS_PER_MINUTE; }
   cycles_per_step_event = config_step_timer((CYCLES_PER_MICROSECOND*1000000*60)/steps_per_minute);
   // beam dynamics
-  uint8_t adjusted_intensity = current_block->nominal_laser_intensity * 
-                               ((float)steps_per_minute/(float)current_block->nominal_rate);
-  adjust_intensity(adjusted_intensity);
-}
-
-
-void adjust_intensity( uint8_t intensity ) {
-  control_laser_intensity(intensity);
-
-  // depending on intensity adapt PWM freq
-  // assuming: TCCR0A = _BV(COM0A1) | _BV(WGM00);  // phase correct PWM mode
-  if (intensity > 40) {
-    // set PWM freq to 3.9kHz
-    TCCR0B = _BV(CS01);
-  } else if (intensity > 10) {
-    // set PWM freq to 489Hz
-    TCCR0B = _BV(CS01) | _BV(CS00);
-  } else {
-    // set PWM freq to 122Hz
-    TCCR0B = _BV(CS02); 
-  }
+  uint16_t adjusted_freq = current_block->laser_pulse_frequency * 
+    ((float)steps_per_minute/(float)current_block->nominal_rate);
+  laser_set_pulse_frequency(adjusted_freq);
 }
 
 

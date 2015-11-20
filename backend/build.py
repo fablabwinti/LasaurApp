@@ -65,7 +65,7 @@ def build_firmware(firmware_name="LasaurGrbl"):
     DEVICE = "atmega328p"
     CLOCK = "16000000"
     BUILDNAME = firmware_name
-    OBJECTS  = ["main", "serial", "protocol", "planner", "sense_control", "stepper"]
+    OBJECTS  = ["main", "serial", "protocol", "planner", "sense_control", "laser", "stepper"]
 
     COMPILE = AVRGCCAPP + " -Wall -Os -DF_CPU=" + CLOCK + " -mmcu=" + DEVICE + " -I. -ffunction-sections" + " --std=c99"
     # COMPILE = AVRGCCAPP + " -Wall -O3 -DF_CPU=" + CLOCK + " -mmcu=" + DEVICE + " -I. -ffunction-sections" + " --std=c99"

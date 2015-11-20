@@ -96,9 +96,8 @@ have enough bandwidth. It beats checksums in our case.
 typedef struct {
   uint8_t ref_mode;                // {REF_RELATIVE, REF_ABSOLUTE}
   double feedrate;                 // mm/min {F}
-  uint8_t intensity;               // 0-255 percentage
-  double duration;                 // pierce duration
-  double pixels_per_mm;            // laser pixels per mm
+  double pulse_frequency;          // laser pulse frequency
+  uint8_t pulse_duration;          // laser pulse duration
   uint8_t offselect;               // {OFFSET_TABLE, OFFSET_CUSTOM}
   double target[3];                // X,Y,Z params accumulated
   double offsets[6];               // coord system offsets [table_X,table_Y,table_Z, custom_X,custom_Y,custom_Z]
@@ -126,10 +125,9 @@ static uint16_t stack_clearance();
 void protocol_init() {
   st.ref_mode = REF_ABSOLUTE;
   st.feedrate = CONFIG_FEEDRATE;
-  st.intensity = 0;
   clear_vector(st.target);
-  st.duration = 0.0;
-  st.pixels_per_mm = 0.0;
+  st.pulse_frequency = 0.0;
+  st.pulse_duration = 0.0;
   st.raster_bytes = 0;
   st.offselect = OFFSET_TABLE;
   // table offset, absolute
@@ -189,11 +187,11 @@ void on_cmd(uint8_t command) {
     case CMD_NONE:
       break;
     case CMD_LINE:
-      planner_line( st.target[X_AXIS], st.target[Y_AXIS], st.target[Z_AXIS], st.feedrate, st.intensity,
-                    st.pixels_per_mm, st.raster_bytes);
+      planner_line( st.target[X_AXIS], st.target[Y_AXIS], st.target[Z_AXIS], st.feedrate,
+                    st.pulse_frequency, st.pulse_duration, st.raster_bytes);
       break;
     case CMD_DWELL:
-      planner_dwell(st.duration, st.intensity);
+      //planner_dwell(st.dwell_duration, st.intensity);
       break;
     case CMD_REF_RELATIVE:
       st.ref_mode = REF_RELATIVE;
@@ -296,13 +294,11 @@ void on_param(uint8_t parameter) {
       case PARAM_FEEDRATE:
         st.feedrate = get_curent_value();
         break;
-      case PARAM_INTENSITY:
-        st.intensity = get_curent_value();
-      case PARAM_PIXELS_PER_MM:
-        st.pixels_per_mm = get_curent_value();
+      case PARAM_PULSE_FREQUENCY:
+        st.pulse_frequency = get_curent_value();
         break;
-      case PARAM_DURATION:
-        st.duration = get_curent_value();
+      case PARAM_PULSE_DURATION:
+        st.pulse_duration = get_curent_value();
         break;
       case PARAM_RASTER_BYTES:
         st.raster_bytes = get_curent_value();
@@ -462,9 +458,8 @@ void protocol_idle() {
       serial_write_param(INFO_OFFCUSTOM_Z, st.offsets[CUSTOMOFF_Z]-st.offsets[TABLEOFF_Z]);      
 
       serial_write_param(INFO_FEEDRATE, st.feedrate);
-      serial_write_param(INFO_INTENSITY, st.intensity);
-      serial_write_param(INFO_DURATION, st.duration);
-      serial_write_param(INFO_PIXELS_PER_MM, st.pixels_per_mm);
+      serial_write_param(INFO_PULSE_FREQUENCY, st.pulse_frequency);
+      serial_write_param(INFO_PULSE_DURATION, st.pulse_duration);
     }
 
     serial_write(STATUS_END);

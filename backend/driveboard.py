@@ -48,9 +48,8 @@ markers_tx = {
     "y": "PARAM_TARGET_Y",
     "z": "PARAM_TARGET_Z",
     "f": "PARAM_FEEDRATE",
-    "s": "PARAM_INTENSITY",
-    "d": "PARAM_DURATION",
-    "p": "PARAM_PIXELS_PER_MM",
+    "p": "PARAM_PULSE_FREQUENCY",
+    "d": "PARAM_PULSE_DURATION",
     "r": "PARAM_RASTER_BYTES",
     "h": "PARAM_OFFTABLE_X",
     "i": "PARAM_OFFTABLE_Y",
@@ -102,9 +101,8 @@ markers_rx = {
     # 'e': "INFO_TARGET_Y",
     # 'f': "INFO_TARGET_Z",
     'g': "INFO_FEEDRATE",
-    'h': "INFO_INTENSITY",
-    'i': "INFO_DURATION",
-    'j': "INFO_PIXELS_PER_MM",
+    'h': "INFO_PULSE_FREQUENCY",
+    'i': "INFO_PULSE_DURATION",
 }
 
 # create a global constant for each of the names above
@@ -118,6 +116,7 @@ TX_CHUNK_SIZE = 16 # number of bytes written to the device in one go
 RX_CHUNK_SIZE = 32
 FIRMBUF_SIZE = 256
 RASTER_BYTES_MAX = 60
+SHORTEST_PULSE_SECONDS = 31.875e-6 # see laser.c
 
 SerialLoop = None
 
@@ -192,9 +191,8 @@ class SerialLoopClass(threading.Thread):
             'offset': [0.0, 0.0, 0.0],
             # 'pos_target': [0.0, 0.0, 0.0],
             'feedrate': 0.0,
-            'intensity': 0.0,
-            'duration': 0.0,
-            'pixels_per_mm': 0.0
+            'pulse_frequency': 0.0,
+            'pulse_duration': 0.0
         }
         self._s = copy.deepcopy(self._status)
 
@@ -406,12 +404,10 @@ class SerialLoopClass(threading.Thread):
                     self._s['offset'][2] = num
                 elif char == INFO_FEEDRATE:
                     self._s['feedrate'] = num
-                elif char == INFO_INTENSITY:
-                    self._s['intensity'] = num
-                elif char == INFO_DURATION:
-                    self._s['duration'] = num
-                elif char == INFO_PIXELS_PER_MM:
-                    self._s['pixels_per_mm'] = num
+                elif char == INFO_PULSE_FREQUENCY:
+                    self._s['pulse_frequency'] = num
+                elif char == INFO_PULSE_DURATION:
+                    self._s['pulse_duration'] = num
                 elif char == INFO_STACK_CLEARANCE:
                     self._s['stackclear'] = num
                 else:
@@ -683,27 +679,79 @@ def homing():
         #    print "WARN: ignoring homing command while job running"
 
         SerialLoop.send_command(CMD_HOMING)
+    current_parameters['x'] = 0
+    current_parameters['y'] = 0
+    current_parameters['z'] = 0
 
+current_parameters = {
+    'feedrate': None,
+    'pulse_frequency': None,
+    'pulse_duration': None,
+    'x': None,
+    'y': None,
+    'z': None,
+}
 
 def feedrate(val):
     global SerialLoop
     with SerialLoop.lock:
         SerialLoop.send_param(PARAM_FEEDRATE, val)
+    current_parameters['feedrate'] = val
 
-def intensity(val):
+def intensity(percent, emulate_old_method=False):
+    """Set laser intensity (in percent)
+
+    This selects a suitable pulse frequency and duration for the next
+    move, calling pulse_frequency() and pulse_duration() on your behalf.
+    """
+    assert percent <= 100 and percent >= 0
+    if emulate_old_method:
+        # approximate what the old firmware did
+        old_intensity = percent / 100.0 * 255.0
+        if old_intensity > 40:
+            freq_hz = 3900
+        elif old_intensity > 10:
+            freq_hz = 489
+        else:
+            freq_hz = 122
+        # find closest feasible pulse duration (rounding up to avoid higher frequencies)
+        pulse = math.ceil((percent/100.0) * 1.0/freq_hz / SHORTEST_PULSE_SECONDS)
+        if pulse > 0:
+            # find a slightly better frequency
+            freq_hz = 1.0 / (pulse * SHORTEST_PULSE_SECONDS / (percent/100.0))
+    else:
+        if percent == 0:
+            pulse = 0
+            freq_hz = 0
+        else:
+            pulse = 3 + math.floor(6 * percent/100)
+            freq_hz = 1.0 / (pulse * SHORTEST_PULSE_SECONDS / (percent/100.0))
+
+    pulse_frequency(freq_hz)
+    pulse_duration(pulse)
+
+def pulse_frequency(freq):
+    """Set laser pulse frequency (pulses per second)
+
+    This affects the laser intensity of the next move, in combination
+    with pulse_duration().
+    """
     global SerialLoop
     with SerialLoop.lock:
-        SerialLoop.send_param(PARAM_INTENSITY, val)
+        SerialLoop.send_param(PARAM_PULSE_FREQUENCY, freq)
+    current_parameters['pulse_frequency'] = freq
 
-def duration(val):
+def pulse_duration(duration):
+    """Set laser pulse duration (integer ticks)
+
+    Sets the pulse duration of the next move, in integer ticks between
+    0 and 255. One tick is 31.875e-6 seconds (SHORTEST_PULSE_SECONDS).
+    """
+    assert duration >= 0 and duration <= 255
     global SerialLoop
     with SerialLoop.lock:
-        SerialLoop.send_param(PARAM_DURATION, val)
-
-def pixels_per_mm(val):
-    global SerialLoop
-    with SerialLoop.lock:
-        SerialLoop.send_param(PARAM_PIXELS_PER_MM, val)
+        SerialLoop.send_param(PARAM_PULSE_DURATION, duration)
+    current_parameters['pulse_duration'] = duration
 
 def relative():
     global SerialLoop
@@ -723,6 +771,9 @@ def move(x, y, z=0.0):
         SerialLoop.send_param(PARAM_TARGET_Y, y)
         SerialLoop.send_param(PARAM_TARGET_Z, z)
         SerialLoop.send_command(CMD_LINE)
+    current_parameters['x'] = x
+    current_parameters['y'] = y
+    current_parameters['z'] = z
 
 def _raster_move_raw(x, y, data):
     """Raster move with data length limited by firmware"""
@@ -736,26 +787,44 @@ def _raster_move_raw(x, y, data):
         SerialLoop.send_raster_data(data)
         SerialLoop.send_param(PARAM_RASTER_BYTES, 0)
 
-def raster_line(x0, y0, x1, y1, data, move_to_start=True):
-    """Raster move with arbitrary data length"""
+def raster_move(x, y, data):
+    """Execute a raster move from the current position
+
+    Each data byte corresponds to a pulse. The number of pulses per mm
+    can be calculated from the data length.  The raster move starts
+    with a pulse and ends at (x, y) where the next pulse would be
+    expected.
+    
+    Data bytes must be <= 127. They encode the pulse length in
+    firmware ticks, like pulse_duration() does.  One tick is 31.875e-6
+    seconds (SHORTEST_PULSE_SECONDS).
+    
+    Calls to intensity(), pulse_duration() or pulse_frequency() do not
+    affect the raster move.  The laser power is already fully defined
+    by the raster move itself. For example, you can double the power
+    by repeating every data byte once.
+    """
     global SerialLoop
     data = numpy.array(data, dtype='uint8', copy=False)
-    intensity(0)
-    if move_to_start:
-        move(x0, y0)
-    length = math.hypot(x0-x1, y0-y1)
+    x0, y0 = current_parameters['x'], current_parameters['y']
+    length = math.hypot(x0-x, y0-y)
     bytes_total = len(data)
-    ppmm = bytes_total/length
-    pixels_per_mm(ppmm)
+    mm_per_second = current_parameters['feedrate'] / 60.0
+    freq = bytes_total * mm_per_second / length
+    #print 'raster_line: byte duration %f' % (1.0/freq)
+    #print 'raster_line: ppmm %f' % (bytes_total / length)
+    freq_old = current_parameters['pulse_frequency']
+    pulse_frequency(freq)
     n = RASTER_BYTES_MAX
     while len(data) > 0:
         chunk, data = data[:n], data[n:] 
         fac = float(len(data))/bytes_total
-        x = fac*x0 + (1-fac)*x1
-        y = fac*y0 + (1-fac)*y1
-        _raster_move_raw(x, y, chunk)
-    pixels_per_mm(0)
-
+        px = fac*x0 + (1-fac)*x
+        py = fac*y0 + (1-fac)*y
+        _raster_move_raw(px, py, chunk)
+    pulse_frequency(freq_old)
+    current_parameters['x'] = x
+    current_parameters['y'] = y
 
 def job(jobdict):
     """Queue an .lsa job.

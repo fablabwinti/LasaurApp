@@ -29,7 +29,7 @@
 #include <avr/sleep.h>
 #include <stdbool.h>
 
-
+#define CYCLES_PER_MICROSECOND (F_CPU/1000000)  //16000000/1000000 = 16
 
 // Initialize and start the stepper motor subsystem
 void stepper_init();

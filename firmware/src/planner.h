@@ -60,8 +60,8 @@ typedef struct {
   double entry_speed;                 // Entry speed at previous-current junction in mm/min
   double vmax_junction;               // max junction speed (mm/min) based on angle between segments, accel and deviation settings
   double millimeters;                 // The total travel of this block in mm
-  uint8_t nominal_laser_intensity;    // 0-255 is 0-100% percentage
-  uint32_t steps_per_pixel;           // microsteps per raster pixel (always more than one), scaled by a constant
+  uint16_t laser_pulse_frequency;     // unit: 2^16/LASER_IRQ_CYCLES
+  uint8_t laser_pulse_duration;       // unit: LASER_IRQ_CYCLES
   bool recalculate_flag;              // Planner flag to recalculate trapezoids on entry junction
   bool nominal_length_flag;           // Planner flag for nominal speed always reached
   // Settings for the trapezoid generator
@@ -79,11 +79,11 @@ void planner_init();
 // Add a new linear movement to the buffer.
 // x, y and z is the signed, absolute target position in millimaters.
 // Feed rate specifies the speed of the motion.
-void planner_line(double x, double y, double z, double feed_rate, uint8_t nominal_laser_intensity,
-                  double pixels_per_mm, uint8_t raster_bytes);
+void planner_line(double x, double y, double z, double feed_rate,
+                  double pulse_frequency, uint8_t pulse_duration, uint8_t raster_bytes);
 
 // Add a new piercing action, lasing at one spot.
-void planner_dwell(double seconds, uint8_t nominal_laser_intensity);
+//void planner_dwell(double seconds, uint8_t nominal_laser_intensity);
 
 // Add a non-motion command to the queue.
 // Typical types are: TYPE_AIR_ASSIST_ENABLE, TYPE_AIR_ASSIST_DISABLE, ...

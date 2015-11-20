@@ -56,9 +56,8 @@
 #define PARAM_TARGET_Y 'y' 
 #define PARAM_TARGET_Z 'z' 
 #define PARAM_FEEDRATE 'f'
-#define PARAM_INTENSITY 's'
-#define PARAM_DURATION 'd'
-#define PARAM_PIXELS_PER_MM 'p'
+#define PARAM_PULSE_FREQUENCY 'p'
+#define PARAM_PULSE_DURATION 'd'
 #define PARAM_RASTER_BYTES 'r'
 #define PARAM_OFFTABLE_X 'h'
 #define PARAM_OFFTABLE_Y 'i'
@@ -110,9 +109,8 @@
 #define INFO_OFFCUSTOM_Y 'b'
 #define INFO_OFFCUSTOM_Z 'c'
 #define INFO_FEEDRATE 'g'
-#define INFO_INTENSITY 'h'
-#define INFO_DURATION 'i'
-#define INFO_PIXELS_PER_MM 'j'
+#define INFO_PULSE_FREQUENCY 'h'
+#define INFO_PULSE_DURATION 'i'
 
 
 
