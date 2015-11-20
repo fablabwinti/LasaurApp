@@ -151,6 +151,9 @@ void planner_line(double x, double y, double z, double feed_rate,
   block->nominal_speed = block->millimeters * inverse_minute; // always > 0
   block->nominal_rate = ceil(block->step_event_count * inverse_minute); // always > 0
 
+  // precalculate value for adjust_speed(), see stepper.c
+  block->pulse_freq_over_nominal_rate = (double)block->laser_pulse_frequency / block->nominal_rate * (1UL<<(5+16));
+
   // compute the acceleration rate for this block. (step/min/acceleration_tick)
   block->rate_delta = ceil( block->step_event_count * inverse_millimeters 
                             * CONFIG_ACCELERATION / (60 * ACCELERATION_TICKS_PER_SECOND) );

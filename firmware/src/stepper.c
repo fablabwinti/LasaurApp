@@ -484,10 +484,20 @@ uint32_t config_step_timer(uint32_t cycles) {
 void adjust_speed( uint32_t steps_per_minute ) {
   // steps_per_minute is typicaly just adjusted_rate
   if (steps_per_minute < MINIMUM_STEPS_PER_MINUTE) { steps_per_minute = MINIMUM_STEPS_PER_MINUTE; }
-  cycles_per_step_event = config_step_timer((CYCLES_PER_MICROSECOND*1000000*60)/steps_per_minute);
+  uint32_t tmp = (CYCLES_PER_MICROSECOND*1000000*60)/steps_per_minute; // duration: 42us
+  cycles_per_step_event = config_step_timer(tmp); // duration: 5us
+  // performance note: 8'000 mm/min = 82us between microsteps
+
   // beam dynamics
-  uint16_t adjusted_freq = current_block->laser_pulse_frequency * 
-    ((float)steps_per_minute/(float)current_block->nominal_rate);
+  //
+  // Formula before optimization:
+  // uint16_t adjusted_freq = current_block->laser_pulse_frequency * ((float)steps_per_minute/(float)current_block->nominal_rate); // duration: 62us
+  //
+  // Optimized formula:
+  // - steps_per_minute: at most 21bits, assuming feedrate < 25000 mm/min
+  // - pulse_freq_over_nominal_rate: can be up to 32bit if steps_per_minute is very small
+  // - result: 16bit (never larger than current_block->laser_pulse_frequency)
+  uint16_t adjusted_freq = (current_block->pulse_freq_over_nominal_rate * (steps_per_minute >> 5)) >> 16;  // duration: 6us
   laser_set_pulse_frequency(adjusted_freq);
 }
 

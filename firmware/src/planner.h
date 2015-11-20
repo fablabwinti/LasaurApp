@@ -71,6 +71,8 @@ typedef struct {
   uint32_t accelerate_until;          // The index of the step event on which to stop acceleration
   uint32_t decelerate_after;          // The index of the step event on which to start decelerating
   raster_t * raster;                  // Raster buffer, NULL if not a raster move
+  // Optimization
+  uint32_t pulse_freq_over_nominal_rate; // precalculated from values above
 } block_t;
 
 // Initialize the motion plan subsystem      
