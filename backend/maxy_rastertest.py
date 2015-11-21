@@ -19,45 +19,28 @@ cut_intensity = 70 # percent
 #ppmm = 20.0 # @ 8000mm/min still quite okay!
 #ppmm = 40.0 # @ 8000mm/min results in slowdown (baudrate limit) but raster pulses looks okay
 #ppmm = 0.03
-ppmm = 10.00
+ppmm = 8.00
 ppmm_y = ppmm
 
-testno = 0
+testno = 1
 if testno == 0:
-    pulse_duration = 50 # laser IRQs (32us each)
-    # test individual pulse lengths
-    H = 30
-    #W = 4000
-    W = 60*60
-    img = np.zeros((H, W), dtype='uint8')
-
-    ppmm_y = 1.0/3.5
-    for p in range(H):
-        #pulse_density = np.linspace(0, .25, W)
-        #line = p * np.diff(np.cumsum(pulse_density).astype(int))
-        #img[p,0] = pulse_duration # marker
-        #img[p,1:] = line
-        bufline = 60*[2,]
-        bufline[0] = 14
-        bufline[-1] = 7
-        #line = 3000*[10, 2, 2, 2]
-        line = 60*bufline
-        print line
-        img[p,:] = line[:W]
-        #print img[p,:]
-
+    OUTDATED
 elif testno == 1:
-    # test with black/white GIMP-dithered image
-    pulse_duration = 5 # laser IRQs (32us each)
-    filename = os.path.join(thislocation, 'testjobs', 'lasersaur_photo_dithered.png')
+    # test with black/white
+    pulse_duration = 2 # laser IRQs (32us each)
+    #filename = os.path.join(thislocation, 'testjobs', 'lasersaur_photo_dithered.png')
+    filename = os.path.join(thislocation, 'testjobs', 'raster-test.png')
     img = Image.open(filename)
     img = img.convert('L') # grayscale
     img = np.array(img)
-    img[img>0] = pulse_duration
+    img = 255-img # invert
+    img[img<127] = 0
+    img[img>127] = pulse_duration
 elif testno == 2:
+    OUTDATED
     # test with different gray levels
     pulse_duration = 10 # laser IRQs (32us each)
-    filename = os.path.join(thislocation, 'testjobs', 'lasersaur_photo.png')
+    filename = os.path.join(thislocation, 'testjobs', 'raster-test.png')
     img = Image.open(filename)
     img = img.convert('L') # grayscale
     img = np.array(img)
@@ -70,11 +53,10 @@ print img, img.mean(), img.max()
 #assert img.max() <= pulse_duration
 
 w, h = img.shape[1] / ppmm, img.shape[0] / ppmm_y
-spacing = 10.0 # mm
+spacing = 5.0 # mm
 leadin = True
 
 execute_job = True
-
 
 if leadin:
     # firmware constant
@@ -83,10 +65,9 @@ if leadin:
 else:
     accel_dist = 0.0
 
-box_w = w + 2*spacing + 2*accel_dist
-box_h = h + 2*spacing
-
 def info():
+    box_w = w + 2*spacing + 2*accel_dist
+    box_h = h + 2*spacing
     print 'image size (pixels)', img.shape
     print 'image size (mm) %.1f, %.1f' % (w, h)
     print 'piece size (mm) %.1f, %.1f' % (box_w, box_h)
@@ -102,10 +83,11 @@ def info():
 def run():
     #b.stop()
     #b.unstop()
-    #b.homing()
-    N = 60*4
+    b.homing()
     print 'queuing job...'
-    for lineno, y in enumerate(np.arange(0.0, h, 1/ppmm_y)):
+
+    b.air_on()
+    for lineno, y in enumerate(np.arange(0.0, h, 1.0/ppmm_y)):
         y += spacing
         x = spacing
         b.feedrate(travel_feedrate)
@@ -117,8 +99,6 @@ def run():
         b.feedrate(feedrate)
         N = int(w * ppmm)
         x += N/ppmm
-        #data = N*[0, 4, 4, 8]
-        #data = ''.join([chr(i) for i in data[:N]])
         data = img[lineno]
         b.raster_move(x, y, data)
         if accel_dist > 0:
@@ -126,13 +106,19 @@ def run():
             b.move(x, y)
         
     # cut it out
-    b.move(0, 0)
+    x0 = accel_dist
+    x1 = accel_dist + 2*spacing + w
+    y0 = 0
+    y1 = h + 2*spacing
+    b.move(x0, y0)
     b.feedrate(cut_feedrate)
     b.intensity(cut_intensity)
-    b.move(box_w, 0)
-    b.move(box_w, box_h)
-    b.move(0, box_h)
-    b.move(0, 0)
+    b.move(x1, y0)
+    b.move(x1, y1)
+    b.move(x0, y1)
+    b.move(x0, y0)
+    b.move(0,0)
+    b.air_off()
     b.intensity(0)
     print 'done, waiting for execution...'
 
@@ -140,8 +126,6 @@ def run():
     time.sleep(2.0)
     while True:
         s = b.status()
-        #print s['feedrate'], s['intensity']
-        #print s['pulses_per_mm'], s['pulse_duration']
         print s
         if s['stops']:
             print s
@@ -157,6 +141,8 @@ info()
 if not execute_job:
     sys.exit(0)
 try:
+    print 'starting in 3 seconds...'
+    time.sleep(3)
     b.connect()
     assert b.connected()
     print b.status()
