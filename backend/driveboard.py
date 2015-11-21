@@ -727,6 +727,9 @@ def intensity(percent, emulate_old_method=False):
             pulse = 3 + math.floor(6 * percent/100)
             freq_hz = 1.0 / (pulse * SHORTEST_PULSE_SECONDS / (percent/100.0))
 
+    if percent > 99:
+        pulse += 1 # make sure pulses overlap slightly
+
     pulse_frequency(freq_hz)
     pulse_duration(pulse)
 
