@@ -32,7 +32,9 @@ def read_dxf(dxf_string, tolerance, optimize=True):
     for color,paths in parse_results['boundarys'].items():
         for path in paths:
             for vertex in path:
-                vertex[1] = 610.0 - vertex[1]
+                # FIXME: shouldn't hardcode the bedsize here
+                #vertex[1] = 610.0 - vertex[1]
+                vertex[1] = 575.0 - vertex[1]
                 if min_x is None or vertex[0] < min_x:
                     min_x = vertex[0]
                 if min_y is None or vertex[1] < min_y:
