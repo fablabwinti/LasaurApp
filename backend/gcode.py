@@ -1,8 +1,9 @@
-import driveboard
-import pulseraster
 import json
 import re
 import base64
+
+import driveboard
+import pulseraster
 
 class DriveboardGcode:
     version = '# LasaurGrbl2 (pulseraster)'

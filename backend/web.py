@@ -115,6 +115,7 @@ class ConfigHandler(tornado.web.RequestHandler):
     def initialize(self, board, conf):
         self.board = board
         self.conf = conf
+
     def get(self):
         c = self.conf
         res = dict(
