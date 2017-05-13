@@ -3,37 +3,12 @@ import logging
 import tornado.options
 import tornado.web
 import tornado.websocket
-import tornado.tcpserver
-#from tornado.escape import json_encode, json_decode
 from tornado.ioloop import PeriodicCallback
-from tornado import gen
+from tornado import gen, locks
 
 import build
 import flash
 
-
-class GcodeTCPServer(tornado.tcpserver.TCPServer):
-    """TCP server with a line oriented gcode protocol
-    """
-    def __init__(self, board, **args):
-        self.board = board
-        super(GcodeTCPServer, self).__init__(**args)
-
-    @gen.coroutine
-    def handle_stream(self, stream, address):
-        logging.info('incoming "gcode over tcp" connection from %r', address)
-        try:
-            stream.write((self.board.version + '\n').encode('utf-8'))
-            while True:
-                line = yield stream.read_until(b'\n')
-                line = line.decode('utf-8', 'ignore').strip()
-                if line:
-                    resp = self.board.gcode_line(line) + '\n'
-                    if resp.startswith('error:'):
-                        logging.warning(resp[6:])
-                    stream.write(resp.encode('utf-8'))
-        except tornado.iostream.StreamClosedError:
-            logging.info('closed "gcode over tcp" by client %r', address)
 
 class FirmwareHandler(tornado.web.RequestHandler):
     """HTTP Build and flash API
@@ -41,6 +16,7 @@ class FirmwareHandler(tornado.web.RequestHandler):
     def initialize(self, board, conf):
         self.board = board
         self.conf = conf
+
     def post(self, action):
         if action == 'build':
             try:
@@ -72,14 +48,19 @@ class FirmwareHandler(tornado.web.RequestHandler):
         else:
             self.set_status(501, 'not implemented')
 
+
 class StatusHandler(tornado.web.RequestHandler):
     """HTTP status requests
     """
+    def set_default_headers(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+
     def initialize(self, board):
         self.board = board
 
     def get(self):
         self.write(self.board.get_status())
+
 
 class StatusWebsocket(tornado.websocket.WebSocketHandler):
     """Websocket for status updates (to avoid HTTP GET polling)
@@ -111,6 +92,7 @@ class StatusWebsocket(tornado.websocket.WebSocketHandler):
     def check_origin(self, origin):
         return True  # anyone may listen to status changes
 
+
 class ConfigHandler(tornado.web.RequestHandler):
     def initialize(self, board, conf):
         self.board = board
@@ -125,56 +107,85 @@ class ConfigHandler(tornado.web.RequestHandler):
             )
         self.write(res)
 
+
+@tornado.web.stream_request_body
 class GcodeHandler(tornado.web.RequestHandler):
+    gcode_sender_lock = locks.Lock()
+
     def initialize(self, board):
         self.board = board
+
+    def set_default_headers(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+
+    def prepare(self):
+        self.unprocessed = b''
+        self.error = None
+        self.lineno = 0
+
+        mtype = self.request.headers.get('Content-Type')
+        if not mtype.startswith('text'):
+            raise tornado.web.HTTPError(400, 'gcode POST handler supports only text/plain content-type')
+
+    @gen.coroutine
+    def data_received(self, chunk):
+        self.unprocessed += chunk
+        lines = self.unprocessed.split(b'\n')
+        self.unprocessed = lines.pop()  # incomplete line
+        for line in lines:
+            # stay responsive to status updates
+            yield gen.moment
+            yield self.process_one_line(line)
+
+    @gen.coroutine
+    def process_one_line(self, line):
+        if self.error:
+            return
+
+        line = line.decode('utf-8', 'ignore').strip()
+        self.lineno += 1
+
+        if self.lineno == 1:
+            if line.startswith('!'):
+                # stop, pause, unpause:
+                # do not wait until previous job is fully queued
+                resp = self.board.special_line(line)
+                yield GcodeHandler.gcode_sender_lock.acquire()
+            elif line.startswith('~'):
+                # recover from stop or error:
+                # wait until previous job stops adding new commands to the queue
+                yield GcodeHandler.gcode_sender_lock.acquire()
+
+                # wait until firmware stops executing (otherwise, we risk error in buffer tracking)
+                self.board.get_status()  # trigger status update, just in case
+                yield gen.sleep(0.8)  # make sure we have an updated status
+                while not self.board.get_status()['ready']:
+                    logging.info('resume command: waiting for ready status...')
+                    # XXX need to unpause() here too?
+                    yield gen.sleep(0.8)
+
+                # finally, resume
+                resp = self.board.special_line(line)
+            else:
+                # no special command:
+                # just wait until previous job is fully queued
+                yield GcodeHandler.gcode_sender_lock.acquire()
+                resp = self.board.gcode_line(line)
+        else:
+            resp = self.board.gcode_line(line)
+
+        if resp.startswith('error:'):
+            self.error = 'line %d: %s' % (self.lineno, resp[6:])
+            logging.warning(self.error)
 
     def post(self):
-        gcode = self.request.body
-        # note: some code duplication with GcodeTCPServer
-        for line in gcode.split(b'\n'):
-            line = line.decode('utf-8', 'ignore').strip()
-            if line:
-                resp = self.board.gcode_line(line) + '\n'
-                if resp.startswith('error:'):
-                    errors = True
-                    logging.warning(resp[6:])
-                # TODO: Not sure if this non-json response is useful for javascript.
-                #       Should probably also return HTTP error if disconnected, etc.
-                self.write(resp.encode('utf-8'))
+        # execute final piece if newline was missing
+        self.process_one_line(self.unprocessed)
 
-class WSHandler(tornado.websocket.WebSocketHandler):
-    clients = set()
+        if self.error:
+            self.set_status(400)
+            self.write(self.error)
 
-    def initialize(self, board):
-        self.board = board
-
-    def get_compression_options(self):
-        # Non-None enables compression with default options.
-        return {}
-
-    def open(self):
-        logging.info('The port-gate is open!')
-        WSHandler.clients.add(self)
-
-    def on_close(self):
-        logging.info('The port-gate is closed.')
-        WSHandler.clients.remove(self)
-
-    def on_message(self, message):
-        logging.info("got message %r", message)
-        for line in message.split('\n'):
-            if line:
-                self.on_gcode(line)
-
-    def on_gcode(self, line):
-        print('executing gcode: %r' % line)
-        resp = self.board.gcode_line(line)
-        if resp.startswith('error:'):
-            logging.warning(resp[6:])
-
-    def check_origin(self, origin):
-        # TODO: this is bad; we don't really want javascript from
-        # random websites to use our machine?
-        # In addition, we also should require authentication.
-        return True
+    def on_finish(self):
+        if self.lineno > 0:
+            GcodeHandler.gcode_sender_lock.release()

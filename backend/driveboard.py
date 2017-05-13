@@ -13,15 +13,16 @@ import serial
 import logging
 from tornado.ioloop import IOLoop, PeriodicCallback
 
-## firmware constants, need to match device firmware
-## (maybe they should be reported by the firmware's superstatus)
-TX_CHUNK_SIZE = 16 # number of bytes written to the device in one go
-FIRMBUF_SIZE = 255-1 # the firmware sacrifices one byte to distinguish full from empty
+# firmware constants, need to match device firmware
+# (maybe they should be reported by the firmware's superstatus)
+
+TX_CHUNK_SIZE = 16  # number of bytes written to the device in one go
+FIRMBUF_SIZE = 255-1  # the firmware sacrifices one byte to distinguish full from empty
 RASTER_BYTES_MAX = 60
-PULSE_SECONDS = 31.875e-6 # see laser.c
-MINIMUM_PULSE_TICKS = 3 # unit: PULSE_SECONDS
-MAXIMUM_PULSE_TICKS = 127 # unit: PULSE_SECONDS
-ACCELERATION = 1800000.0 # mm/min^2, divide by (60*60) to get mm/sec^2
+PULSE_SECONDS = 31.875e-6  # see laser.c
+MINIMUM_PULSE_TICKS = 3  # unit: PULSE_SECONDS
+MAXIMUM_PULSE_TICKS = 127  # unit: PULSE_SECONDS
+ACCELERATION = 1800000.0  # mm/min^2, divide by (60*60) to get mm/sec^2
 
 # "import" firmware protocol constants
 markers_tx = {}
@@ -85,7 +86,6 @@ class Driveboard:
 
         # initialize self.status
         self._update_status()
-
 
     def reset_protocol(self):
         self.serial_write_queue.clear()
@@ -165,16 +165,30 @@ class Driveboard:
         if not self.device:
             logging.warning('write ignored (device closed)')
             return
-        queue = self.serial_write_queue
+
+        if False:  # debug
+            def pretty(i):
+                if i < 128:
+                    return i
+                else:
+                    return ord('^')
+            data_pretty = bytes(pretty(i) for i in data)
+            logging.info('_serial_write %r', data_pretty)
+
         for b in data:
             # by protocol send twice
-            queue.append(b)
-            queue.append(b)
-        if queue:
-            n = self.device.write(queue)
-            #print('tx', repr(queue[:n]))
-            del queue[:n]
-            if queue:
+            self.serial_write_queue.append(b)
+            self.serial_write_queue.append(b)
+        if self.serial_write_queue:
+            n = self.device.write(self.serial_write_queue)
+
+            # del self.serial_write_queue[:n]
+            #
+            # workaround for Python 3.4.2 bug
+            # (bytearray del[] bug http://bugs.python.org/issue23985)
+            self.serial_write_queue = self.serial_write_queue[n:]
+
+            if self.serial_write_queue:
                 # usually never reached (because fw_buffer < serial_buffer)
                 #logging.warning('%d bytes still waiting in queue after tx', len(queue))
                 self.io_loop.update_handler(self.device, IOLoop.READ | IOLoop.WRITE)
@@ -188,7 +202,13 @@ class Driveboard:
 
         # for error diagnostics
         self.read_hist.extend(data)
-        del self.read_hist[:-80]
+        # del self.read_hist[:-80]
+        #
+        # workaround for Python 3.4.2 bug
+        # (bytearray del[] bug http://bugs.python.org/issue23985)
+        # self.read_hist.extend(data)
+        self.read_hist = self.read_hist[-80:]
+
         print_hist = False
 
         for byte in data:
@@ -292,7 +312,7 @@ class Driveboard:
             'firmver': self.firmver,
             'ready': r.pop(INFO_IDLE_YES, False) and not self.firmbuf_queue,
             'paused': self.paused,
-            'serial': bool(self.device),
+            'serial_connected': bool(self.device),
             # 'progress': TODO, # if self.job_size == 0: self._status['progress'] = 1.0 else: self._status['progress'] = round(SerialLoop.tx_pos/float(SerialLoop.job_size),3)
             'queue': {
                 'firmbuf': self.firmbuf_used,
@@ -312,11 +332,11 @@ class Driveboard:
             'stops': [],  # list of active stop errors, first one first
             'error_report': '',  # either empty, or description of the current problem
 
-            'info':{
+            'info': {
                 'door_open': r.pop(INFO_DOOR_OPEN, False),
                 'chiller_off': r.pop(INFO_CHILLER_OFF, False)
                 },
-            #'offset': [0.0, 0.0, 0.0],  # todo: super-status only; should track changes?
+            # 'offset': [0.0, 0.0, 0.0],  # todo: super-status only; should track changes?
         }
 
         # process everything that was not pop()ed above
@@ -331,13 +351,21 @@ class Driveboard:
             else:
                 logging.warning('unhandled marker_rx %r value %r', name, value)
 
+        # check if driveboard has crashed or disconnected
+        status_report_missing = False
+        if self.device and self.last_status_report < time.time() - 0.5:
+            # Because importing a large job (SVG or DXF) blocks the backend
+            # we only report this error if we requested the status recently.
+            if self.last_status_request < time.time() - 0.5:
+                status_report_missing = True
+
         # generate summary error report
         report = ''
         if not self.device:
             report = 'disconnected from serial port'
             if self.disconnect_reason:
                 report += ' - ' + self.disconnect_reason
-        elif self.last_status_report < time.time() - 0.5:
+        elif status_report_missing:
             report = 'last status update from driveboard is too old'
         elif self.status['stops']:
             stops = self.status['stops']
@@ -345,6 +373,11 @@ class Driveboard:
             if len(stops) > 1:
                 report += ' (and also ' + ' '.join(stops[1:]) + ')'
         self.status['error_report'] = report
+
+        previous_report = getattr(self, 'previous_error_report', '')
+        if previous_report != report:
+            self.previous_error_report = report
+            logging.warning('error_report changed: %r --> %r', previous_report, report)
 
         # TODO maybe: push notifications to websocket right away
 
@@ -356,9 +389,9 @@ class Driveboard:
                 self.fw_stopped = False
                 self.fw_resuming = True
                 if 'rx_buffer_overflow' in self.status['stops'] or \
-                  'transmission_error' in self.status['stops']:
-                  # need to fix the buffer tracking first
-                  self.reset_protocol()
+                   'transmission_error' in self.status['stops']:
+                    # need to fix the buffer tracking first
+                    self.reset_protocol()
             self._serial_write(bytes([cmd]))
         else:
             self._send_fwbuf(bytes([cmd]))
@@ -404,7 +437,11 @@ class Driveboard:
 
         if available > 0 and self.firmbuf_queue:
             out = self.firmbuf_queue[:available]
-            del self.firmbuf_queue[:available]
+            # del self.firmbuf_queue[:available]
+            #
+            # workaround for Python 3.4.2 bug
+            # (bytearray del[] bug http://bugs.python.org/issue23985)
+            self.firmbuf_queue = self.firmbuf_queue[available:]
             self.firmbuf_used += len(out)
             self._serial_write(out)
 
@@ -414,7 +451,7 @@ class Driveboard:
             self.last_status_request = time.time()
 
     def _on_startup_greeting(self, value):
-        if abs(value - 123.456) < 0.001:
+        if abs(value - 200.456) < 0.001:
             if self.greeting_timeout is not None:
                 self.io_loop.remove_timeout(self.greeting_timeout)
                 self.greeting_timeout = None

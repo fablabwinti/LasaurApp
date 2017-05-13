@@ -29,52 +29,25 @@ class DriveboardGcode:
     def get_status(self):
         return self.driveboard.get_status()
 
-    def status_request(self, arg):
-        ## https://github.com/grbl/grbl/wiki/Interfacing-with-Grbl
-        ## data = '<Idle,MPos:0.000,0.000,0.000,WPos:0.000,0.000,0.000>'
-        #data = '<Idle,MPos:%.3f,%.3f,%.3f,WPos:0.000,0.000,0.000>' % \
-        #        (st['INFO_POS_X'], st['INFO_POS_Y'], st['INFO_POS_Z'])
-
-        status = self.driveboard.get_status()
-        if arg == 'full':
-            return 'status:' + json.dumps(status)
-        elif arg == 'queue':
-            return json.dumps(status['queue'])
-        elif not arg:
-            if status['error_report']:
-                return 'status:' + status['error_report']
-            elif status['ready']:
-                return 'status:ready'
-            else:
-                return 'status:busy'
-        else:
-            return 'error:invalid status request'
-
     def special_line(self, line):
         # those commands work even when disconnected:
-        if line[0] == '?':
-            # status request
-            arg = line[1:].strip()
-            return self.status_request(arg)
-        elif line == '!' or line == '!stop':
+        if line == '!' or line == '!stop':
             # instant stop
             self.driveboard.send_command('CMD_STOP')
-            return 'info:stopping'
+            return 'ok'
         elif line == '~' or line == '!resume':
             # recover from all stop conditions
             error = self.driveboard.connect()
             if error: return 'error:' + error
             self.driveboard.send_command('CMD_RESUME')
             self.driveboard.unpause()
-            return 'info:resuming'
+            return 'ok'
         elif line == '!pause':
             self.driveboard.pause()
-            return 'info:pausing'
+            return 'ok'
         elif line == '!unpause':
             self.driveboard.unpause()
-            return 'info:continuing'
-        elif line == '!version':
-            return 'info:' + self.version
+            return 'ok'
         else:
             return 'error:invalid command'
 
@@ -83,11 +56,13 @@ class DriveboardGcode:
         if not line:
             return ''
 
-        if line[0] in '?!~':
-            return self.special_line(line)
-
         if not self.driveboard.is_connected():
             return 'error:' + self.driveboard.get_disconnect_reason()
+
+        if self.driveboard.fw_stopped:
+            # firmware is discarding all queue commands, purging the current jobdata
+            # so don't waste time parsing it
+            return 'ok'
 
         args = {}
 
@@ -103,12 +78,12 @@ class DriveboardGcode:
         # extract gcode parameters
         parts = re.split(r'([A-Z])', line)
         if parts[0] != '' or len(parts) < 3:
-            return 'error:ignored unknown gcode %r' % line
+            return 'error:unknown gcode %r' % line
         try:
             # this way, we support both G00 and G0
             cmd = (parts[1] + str(int(parts[2]))).strip()
         except ValueError:
-            return 'error:gcode line ignored, could not parse int in %r' % line
+            return 'error:could not parse int in %r' % line
         parts = parts[3:]
 
         while parts:
@@ -116,7 +91,7 @@ class DriveboardGcode:
             try:
                 value = float(parts.pop(0))
             except ValueError:
-                return 'error:gcode line ignored, could not parse float in %r' % line
+                return 'error:could not parse float in %r' % line
             args[letter] = value
 
         # result of parsing

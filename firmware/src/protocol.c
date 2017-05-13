@@ -171,7 +171,7 @@ void protocol_loop() {
         if(pdata.count < PARAM_MAX_DATA_LENGTH) {
           pdata.chars[pdata.count++] = chr;
         } else {
-          stepper_request_stop(STOPERROR_INVALID_DATA);
+          stepper_request_stop(STOPERROR_INVALID_PARAM_DATA);
         }
       }
       protocol_idle();

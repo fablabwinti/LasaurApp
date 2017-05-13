@@ -98,7 +98,7 @@ void serial_init() {
 	  
 	// defaults to 8-bit, no parity, 1 stop bit
 
-  serial_write_param(INFO_STARTUP_GREETING, 123.456);
+  serial_write_param(INFO_STARTUP_GREETING, 200.456);
 }
 
 

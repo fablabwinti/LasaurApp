@@ -91,6 +91,7 @@
 #define STOPERROR_VALUE_OUT_OF_RANGE '('
 #define STOPERROR_TRANSMISSION_ERROR '='
 #define STOPERROR_USART_DATA_OVERRUN ','
+#define STOPERROR_INVALID_PARAM_DATA '.'
 
 
 // status: info markers

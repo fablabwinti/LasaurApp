@@ -9,14 +9,13 @@ import tornado.wsgi
 import tornado.httpserver
 
 from bottle import *
-from serial_manager import SerialManager
 from filereaders import read_svg, read_dxf, read_ngc
 
 
 APPNAME = "lasaurapp"
-VERSION = "16.05 (pulseraster branch)"
+VERSION = "17.05 (pulseraster branch)"
 COMPANY_NAME = "com.nortd.labs"
-COOKIE_KEY = 'secret_key_jkn23489hsdf'
+# COOKIE_KEY = 'secret_key_jkn23489hsdf'
 TOLERANCE = 0.08
 
 
@@ -58,7 +57,6 @@ def run_with_callback(host, port):
     """ Start a server instance with control over the main loop.
         This is a function that I derived from the bottle.py run()
     """
-    SerialManager.connect()
     handler = default_app()
     if args.debug:
         debug(True)
@@ -95,18 +93,6 @@ def run_with_callback(host, port):
     tornado.ioloop.IOLoop.current().start()
 
     print("\nBottle server shutting down...")
-    SerialManager.close()
-
-
-
-
-# @route('/longtest')
-# def longtest_handler():
-#     fp = open("longtest.ngc")
-#     for line in fp:
-#         SerialManager.queue_gcode_line(line)
-#     return "Longtest queued."
-
 
 
 @route('/css/:path#.+#')
@@ -125,6 +111,12 @@ def static_img_handler(path):
 def favicon_handler():
     return static_file('favicon.ico', root=os.path.join(resources_dir(), 'frontend/original/img'))
 
+@route('/version')
+def get_version():
+    return json.dumps({
+        'APPNAME': APPNAME,
+        'VERSION': VERSION
+    })
 
 ### LIBRARY
 
@@ -182,7 +174,7 @@ def queue_save_handler():
     if 'job_name' in request.forms and 'job_data' in request.forms:
         name = request.forms.get('job_name')
         job_data = request.forms.get('job_data')
-        filename = os.path.abspath(os.path.join(storage_dir(), name.strip('/\\')))
+        filename = os.path.abspath(os.path.join(storage_dir(), name.strip('/\\')))  ### XXX security: filename not sanitized properly (maybe not super critical because people who can use this api already can control the laserlaser)
         if os.path.exists(filename) or os.path.exists(filename+'.starred'):
             return "file_exists"
         try:
@@ -255,8 +247,6 @@ def queue_unstar_handler(name):
     return ret
 
 
-
-
 @route('/')
 @route('/index.html')
 @route('/app.html')
@@ -281,84 +271,6 @@ def stash_download():
 def download(filename, dlname):
     print("requesting: " + filename)
     return static_file(filename, root=tempfile.gettempdir(), download=dlname)
-
-
-@route('/serial/:connect')
-def serial_handler(connect):
-    print('connect', connect)
-    if connect == '1':
-        print('js is asking to connect serial')
-        if not SerialManager.is_connected():
-            SerialManager.connect()
-            ret = 'Connecting to serial backend...<br>'
-            print(ret)
-            return ret
-            print("Failed to connect to serial.")
-            #return ""
-    elif connect == '0':
-        print('js is asking to close serial')
-        if SerialManager.is_connected():
-            if SerialManager.close(): return "1"
-            else: return ""
-    elif connect == "2":
-        print('js is asking if serial connected')
-        if SerialManager.is_connected(): return "1"
-        else: return ""
-    else:
-        print('ambigious connect request from js: ' + connect)
-        return ""
-
-
-
-@route('/status')
-def get_status():
-    status = copy.deepcopy(SerialManager.get_hardware_status())
-    status['serial_connected'] = SerialManager.is_connected()
-    status['lasaurapp_version'] = VERSION
-    # FIXME: if more than one frontend is running, the error is reported
-    #        only to one (not always the one who sent the offending gcode)
-    status['gcode_error'] = SerialManager.pop_gcode_error()
-    return json.dumps(status)
-
-
-@route('/pause/:flag')
-def set_pause(flag):
-    # returns pause status
-    if flag == '1':
-        if SerialManager.set_pause(True):
-            print("pausing ...")
-            return '1'
-        else:
-            return '0'
-    elif flag == '0':
-        print("resuming ...")
-        if SerialManager.set_pause(False):
-            return '1'
-        else:
-            return '0'
-
-
-@route('/gcode', method='POST')
-def job_submit_handler():
-    job_data = request.forms.get('job_data')
-    if job_data and SerialManager.is_connected():
-        SerialManager.queue_gcode(job_data)
-        return "__ok__"
-    else:
-        return "serial disconnected"
-
-
-@route('/queue_pct_done')
-def queue_pct_done_handler():
-    status = SerialManager.get_hardware_status()
-    percent = status['queue']['job_percent']
-    idle = status['ready']
-    if idle and percent == 100.0:
-        return ''
-    else:
-        return str(percent)
-
-
 
 @route('/file_reader', method='POST')
 def file_reader():

@@ -122,7 +122,10 @@ angular.module('app.raster', ['app.core'])
         return $http({
             method: 'POST',
             url: '/gcode',
-            data: gcode
+            data: gcode,
+            headers: {
+                'Content-Type': 'text/plain'
+            }
         }).then(function success(resp) {
             vm.submitStatus = 'Gcode sent to backend.';
             $timeout(function() { vm.submitStatus = ''; }, 3000);

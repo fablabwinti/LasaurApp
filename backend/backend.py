@@ -17,7 +17,6 @@ import web
 class Application(tornado.web.Application):
     def __init__(self, conf, board):
         handlers = [
-            (r"/ws", web.WSHandler, dict(board=board)),
             (r"/gcode", web.GcodeHandler, dict(board=board)),
             (r"/status", web.StatusHandler, dict(board=board)),
             (r"/status/ws", web.StatusWebsocket, dict(board=board)),
@@ -81,10 +80,6 @@ def main():
     else:
         addr = '127.0.0.1'
     app.listen(port, addr)
-    # app.listen(7777, addr)
-
-    gcode_tcp = web.GcodeTCPServer(board)
-    gcode_tcp.listen(7777, '127.0.0.1')
 
     io_loop.start()
 

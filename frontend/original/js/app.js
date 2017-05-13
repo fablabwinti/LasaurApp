@@ -1,7 +1,7 @@
+var new_api = 'http://' + window.location.hostname + ':5555';
 
 var hardware_ready_state = false;
 var firmware_version_reported = false;
-var lasaurapp_version_reported = false;
 var progress_not_yet_done_flag = false;
 var previous_error_report = '';
 var stop_and_resume_in_progress = false;
@@ -61,35 +61,38 @@ function send_gcode(gcode, success_msg, progress) {
   }
   // if (hardware_ready_state || gcode[0] == '!' || gcode[0] == '~') {
   if (true) {
-    if (typeof gcode === "string" && gcode != '') {
+    if (typeof gcode === 'string' && gcode != '') {
       // $().uxmessage('notice', gcode, Infinity);
-      $.ajax({
-        type: "POST",
-        url: "/gcode",
-        data: {'job_data':gcode},
-        // dataType: "json",
-        success: function (data) {
-          if (data == "__ok__") {
-            if (previous_error_report && gcode[0] != '!' && gcode[0] != '~') {
-              $().uxmessage('error', 'Error unresolved: ' + previous_error_report);
-            }
-            $().uxmessage('success', success_msg);
 
-            if (progress == true) {
-              // show progress bar, register live updates
-              if ($("#progressbar").children().first().width() == 0) {
-                $("#progressbar").children().first().width('5%');
-                $("#progressbar").show();
-                progress_not_yet_done_flag = true;
-                setTimeout(update_progress, 2000);
-              }
-            }
-          } else {
-            $().uxmessage('error', "Backend error: " + data);
+      if (progress == true) {
+        // show progress bar, register live updates
+        if ($("#progressbar").children().first().width() == 0) {
+          $("#progressbar").children().first().width('2%');
+          $("#progressbar").show();
+          progress_not_yet_done_flag = true;
+          setTimeout(update_progress, 2000);
+        }
+      }
+
+      $.ajax({
+        type: 'POST',
+        url: new_api + '/gcode',
+        contentType: 'text/plain',
+        data: gcode,
+        dataType: 'json',
+        success: function (data) {
+          if (previous_error_report && gcode[0] != '!' && gcode[0] != '~') {
+            $().uxmessage('error', 'Error unresolved: ' + previous_error_report);
           }
+          $().uxmessage('success', success_msg);
         },
         error: function (data) {
-          $().uxmessage('error', "Timeout. LasaurApp server down?");
+          if (data.responseText) {
+            $().uxmessage('error', 'Error posting gcode: ' + data.responseText);
+          } else {
+            $().uxmessage('error', 'Error posting gcode. LasaurApp server down?');
+          }
+          console.log(data);
         },
         complete: function (data) {
           // future use
@@ -105,11 +108,13 @@ function send_gcode(gcode, success_msg, progress) {
 
 
 function update_progress() {
-  $.get('/queue_pct_done', function(data) {
-    if (data.length > 0) {
-      var pct = parseInt(data);
+  $.get(new_api + '/status', function(data) {
+    var pct = data.queue.job_percent;
+    var busy = !data.ready;
+    if (pct != 100 || busy) {
       $("#progressbar").show();
-      $("#progressbar").children().first().width(pct+'%');
+      var pct_gui = 2 + pct/100*94;
+      $("#progressbar").children().first().width(pct_gui+'%');
       setTimeout(update_progress, 2000);
     } else {
       if (progress_not_yet_done_flag) {
@@ -176,7 +181,8 @@ function generate_download(filename, filedata) {
       window.open("/download/" + data + "/" + filename, '_blank');
     },
     error: function (data) {
-      $().uxmessage('error', "Timeout. LasaurApp server down?");
+      console.log(data);
+      $().uxmessage('error', "Error. LasaurApp server down?");
     },
     complete: function (data) {
       // future use
@@ -193,34 +199,28 @@ function generate_download(filename, filedata) {
 $(document).ready(function(){
   
   $().uxmessage('notice', "Frontend started.");
-  
+
+  $.getJSON('/version', function(data) {
+    $().uxmessage('notice', "LasaurApp v" + data.VERSION);
+    $('#lasaurapp_version').html(data.VERSION);
+  });
+
   $('#feedrate_field').val(app_settings.max_seek_speed);
 
   $('#tab_logs_button').click(function(){
     $('#log_content').show()
     $('#tab_logs div.alert').show()
-  })
-
+  });
 
   //////// serial connect and pause button ////////
-  var connect_btn_state = false;
-  var connect_btn_in_hover = false;
   var pause_btn_state = false;
 
   function connect_btn_set_state(is_connected) {
     if (is_connected) {
-      connect_btn_state = true
-      if (!connect_btn_in_hover) {
-        $("#connect_btn").html("Connected");
-      }
       $("#connect_btn").removeClass("btn-danger");
       $("#connect_btn").removeClass("btn-warning");
       $("#connect_btn").addClass("btn-success");      
     } else {
-      connect_btn_state = false
-      if (!connect_btn_in_hover) {
-        $("#connect_btn").html("Disconnected");
-      }   
       $("#connect_btn").removeClass("btn-danger");
       $("#connect_btn").removeClass("btn-success");
       $("#connect_btn").addClass("btn-warning");     
@@ -228,6 +228,7 @@ $(document).ready(function(){
   }
     
   // get hardware status
+  var previous_status = {};
   function poll_hardware_status() {
     function report_error(error_report) {
       if (error_report != previous_error_report) {
@@ -245,119 +246,115 @@ $(document).ready(function(){
         }
       }
     }
-    $.getJSON('/status', function(data) {
-      // pause status
-      if (data.paused) {
-        pause_btn_state = true;
-        $("#pause_btn").addClass("btn-primary");
-        $("#pause_btn").html('<i class="icon-play"></i>');
-      } else {
-        pause_btn_state = false;
-        $("#pause_btn").removeClass("btn-warning");
-        $("#pause_btn").removeClass("btn-primary");
-        $("#pause_btn").html('<i class="icon-pause"></i>');
-      }
-      // serial connected
-      if (data.serial) {
-        connect_btn_set_state(true);
-      } else {
-        connect_btn_set_state(false);
-      }
+    $.getJSON(new_api + '/status', function(status) {
+      // avoid flickering GUI elements while idle
+      if (JSON.stringify(status) !== JSON.stringify(previous_status)) {
+        previous_status = status;
 
-      // ready state
-      if (data.ready) {
-        hardware_ready_state = true;
-        $("#connect_btn").html("Ready");
-      } else {
-        if (data.serial_connected) {
-          $("#connect_btn").html("Busy");
-        }
-        hardware_ready_state = false;
-      }
-
-      // gcode parser errors
-      if (data.gcode_error) {
-        $().uxmessage('error', data.gcode_error);
-      }
-
-      // door, chiller, power, limit, buffer
-      if (data.serial) {
-        if (data.info.door_open) {
-          $('#door_status_btn').removeClass('btn-success')
-          $('#door_status_btn').addClass('btn-warning')
-          // $().uxmessage('warning', "Door is open!");
+        // pause status
+        if (status.paused) {
+          pause_btn_state = true;
+          $("#pause_btn").addClass("btn-primary");
+          $("#pause_btn").html('<i class="icon-play"></i>');
         } else {
-          $('#door_status_btn').removeClass('btn-warning')
-          $('#door_status_btn').addClass('btn-success')
+          pause_btn_state = false;
+          $("#pause_btn").removeClass("btn-warning");
+          $("#pause_btn").removeClass("btn-primary");
+          $("#pause_btn").html('<i class="icon-pause"></i>');
         }
-        if (data.info.chiller_off) {
-          $('#chiller_status_btn').removeClass('btn-success')
-          $('#chiller_status_btn').addClass('btn-warning')
-          // $().uxmessage('warning', "Chiller is off!");
+
+        if (status.serial_connected) {
+          connect_btn_set_state(true);
         } else {
-          $('#chiller_status_btn').removeClass('btn-warning')
-          $('#chiller_status_btn').addClass('btn-success')
+          connect_btn_set_state(false);
         }
-        // if (data.power_off) {
-        //   $().uxmessage('error', "Power is off!");
-        //   $().uxmessage('notice', "Turn on Lasersaur power then run homing cycle to reset.");
-        // }
-        if (data.pos.x && data.pos.y) {
-          // only update if not manually entering at the same time
-          if (!$('#x_location_field').is(":focus") &&
-              !$('#y_location_field').is(":focus") &&
-              !$('#location_set_btn').is(":focus") &&
-              !$('#origin_set_btn').is(":focus"))
-          {
-            var x = parseFloat(data.pos.x).toFixed(2)/1;
-            $('#x_location_field').val(x.toFixed(2));
-            $('#x_location_field').animate({
-              opacity: 0.5
-            }, 100, function() {
+
+        // ready state
+        if (status.ready) {
+          hardware_ready_state = true;
+          $("#connect_btn").html("Ready");
+        } else {
+          if (status.serial_connected) {
+            $("#connect_btn").html("Busy");
+          }
+          hardware_ready_state = false;
+        }
+
+        // door, chiller, power, limit, buffer
+        if (status.serial_connected) {
+          if (status.info.door_open) {
+            $('#door_status_btn').removeClass('btn-success')
+            $('#door_status_btn').addClass('btn-warning')
+            // $().uxmessage('warning', "Door is open!");
+          } else {
+            $('#door_status_btn').removeClass('btn-warning')
+            $('#door_status_btn').addClass('btn-success')
+          }
+          if (status.info.chiller_off) {
+            $('#chiller_status_btn').removeClass('btn-success')
+            $('#chiller_status_btn').addClass('btn-warning')
+            // $().uxmessage('warning', "Chiller is off!");
+          } else {
+            $('#chiller_status_btn').removeClass('btn-warning')
+            $('#chiller_status_btn').addClass('btn-success')
+          }
+          // if (status.power_off) {
+          //   $().uxmessage('error', "Power is off!");
+          //   $().uxmessage('notice', "Turn on Lasersaur power then run homing cycle to reset.");
+          // }
+          if (status.pos.x && status.pos.y) {
+            // only update if not manually entering at the same time
+            if (!$('#x_location_field').is(":focus") &&
+                !$('#y_location_field').is(":focus") &&
+                !$('#location_set_btn').is(":focus") &&
+                !$('#origin_set_btn').is(":focus"))
+            {
+              var x = parseFloat(status.pos.x).toFixed(2)/1;
+              $('#x_location_field').val(x.toFixed(2));
               $('#x_location_field').animate({
-                opacity: 1.0
-              }, 600, function() {});
-            });
-            var y = parseFloat(data.pos.y).toFixed(2)/1;
-            $('#y_location_field').val(y.toFixed(2));
-            $('#y_location_field').animate({
-              opacity: 0.5
-            }, 100, function() {
+                opacity: 0.5
+              }, 100, function() {
+                $('#x_location_field').animate({
+                  opacity: 1.0
+                }, 600, function() {});
+              });
+              var y = parseFloat(status.pos.y).toFixed(2)/1;
+              $('#y_location_field').val(y.toFixed(2));
               $('#y_location_field').animate({
-                opacity: 1.0
-              }, 600, function() {});
-            });
+                opacity: 0.5
+              }, 100, function() {
+                $('#y_location_field').animate({
+                  opacity: 1.0
+                }, 600, function() {});
+              });
+            }
+          }
+          if (status.firmver && !firmware_version_reported) {
+            $().uxmessage('notice', "Firmware v" + status.firmver);
+            $('#firmware_version').html(status.firmver);
+            firmware_version_reported = true;
           }
         }
-        if (data.firmver && !firmware_version_reported) {
-          $().uxmessage('notice', "Firmware v" + data.firmver);
-          $('#firmware_version').html(data.firmware_version);
-          firmware_version_reported = true;
+        var msg = status.error_report;
+        if (stop_and_resume_in_progress) {
+          // known cause, don't report
+          if (msg === 'stopped - serial_stop_request') {
+            msg = '';
+          }
         }
-      }
-      if (data.lasaurapp_version && !lasaurapp_version_reported) {
-        $().uxmessage('notice', "LasaurApp v" + data.lasaurapp_version);
-        $('#lasaurapp_version').html(data.lasaurapp_version);
-        lasaurapp_version_reported = true;
-      }
-      var msg = data.error_report;
-      if (stop_and_resume_in_progress) {
-        // known cause, don't report
-        if (msg === 'stopped - serial_stop_request') {
-          msg = '';
+        if (last_command_was_homing) {
+          // known cause, no status updates during homing
+          if (msg === 'last status update from driveboard is too old') {
+            msg = '';
+          }
         }
+        report_error(msg);
       }
-      if (last_command_was_homing) {
-        // known cause, no status updates during homing
-        if (msg === 'last status update from driveboard is too old') {
-          msg = '';
-        }
-      }
-      report_error(msg);
       // schedule next hardware poll
       setTimeout(function() {poll_hardware_status()}, 300);
     }).fail(function() {
       // lost connection to server
+      previous_status = {};
       report_error("connection to backend webserver lost");
       connect_btn_set_state(false);
       // schedule next hardware poll
@@ -369,82 +366,16 @@ $(document).ready(function(){
 
   connect_btn_width = $("#connect_btn").innerWidth();
   $("#connect_btn").width(connect_btn_width);
-  $("#connect_btn").click(function(e){  
-    if (connect_btn_state == true) {
-      $.get('/serial/0', function(data) {
-        if (data != "") {
-          connect_btn_set_state(false);   
-        } else {
-          // was already disconnected
-          connect_btn_set_state(false);
-        }
-        $("#connect_btn").html("Disconnected");
-      });
-    } else {
-      $("#connect_btn").html('Connecting...');
-      $.get('/serial/1', function(data) {
-        if (data != "") {
-          connect_btn_set_state(true);
-          $("#connect_btn").html("Connected");      
-        } else {
-          // failed to connect
-          connect_btn_set_state(false);
-          $("#connect_btn").removeClass("btn-warning");
-          $("#connect_btn").addClass("btn-danger");  
-        }   
-      });
-    } 
-    e.preventDefault();   
-  }); 
-  $("#connect_btn").hover(
-    function () {
-      connect_btn_in_hover = true;
-      if (connect_btn_state) {
-        $(this).html("Disconnect");
-      } else {
-        $(this).html("Connect");
-      }
-      $(this).width(connect_btn_width);
-    }, 
-    function () {
-      connect_btn_in_hover = false;
-      if (connect_btn_state) {
-        $(this).html("Connected");
-      } else {
-        $(this).html("Disconnected");
-      }
-      $(this).width(connect_btn_width);      
-    }
-  );
 
   $("#pause_btn").tooltip({placement:'bottom', delay: {show:500, hide:100}});
-  $("#pause_btn").click(function(e){  
+  $("#pause_btn").click(function(e){
+    console.log('click stat', pause_btn_state)
     if (pause_btn_state == true) {  // unpause
-      $.get('/pause/0', function(data) {
-        if (data == '0') {
-          pause_btn_state = false;
-          $("#pause_btn").removeClass('btn-primary');
-          $("#pause_btn").removeClass('btn-warning');
-          $("#pause_btn").html('<i class="icon-pause"></i>');
-          $().uxmessage('notice', "Continuing...");
-        }
-      });
+      send_gcode('!unpause', 'Continuing...', false);
     } else {  // pause
       $("#pause_btn").addClass('btn-warning');
-      $.get('/pause/1', function(data) {
-        if (data == "1") {
-          pause_btn_state = true;
-          $("#pause_btn").removeClass("btn-warning");
-          $("#pause_btn").addClass('btn-primary');
-          $("#pause_btn").html('<i class="icon-play"></i>');
-          $().uxmessage('notice', "Pausing in a bit...");
-        } else if (data == '0') {
-          $("#pause_btn").removeClass("btn-warning");
-          $("#pause_btn").removeClass("btn-primary");
-          $().uxmessage('notice', "Not pausing...");
-        }   
-      });
-    } 
+      send_gcode('!pause', 'Pausing in a bit...', false);
+    }
     e.preventDefault();   
   }); 
   //\\\\\\ serial connect and pause button \\\\\\\\
