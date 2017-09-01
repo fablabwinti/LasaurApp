@@ -140,14 +140,6 @@ def library_list_handler():
 
 ### QUEUE
 
-def encode_filename(name):
-    str(time.time()) + '-' + base64.urlsafe_b64encode(name)
-
-def decode_filename(name):
-    index = name.find('-')
-    return base64.urlsafe_b64decode(name[index+1:])
-
-
 @route('/queue/get/:name#.+#')
 def static_queue_handler(name):
     return static_file(name, root=storage_dir(), mimetype='text/plain')

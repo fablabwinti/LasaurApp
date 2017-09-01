@@ -5,7 +5,7 @@ function reset_offset() {
   $("#offset_area").hide();
   $('#offset_area').css({'opacity':0.0, left:0, top:0});
   gcode_coordinate_offset = undefined;
-  $("#cutting_area").css('border', '1px dashed #ff0000');
+  $("#cutting_area").css('border', '1px dashed #007777');
   $("#offset_area").css('border', '1px dashed #aaaaaa');
   send_gcode('G54\n', "Offset reset.", false);
   $('#coordinates_info').text('');
@@ -85,7 +85,7 @@ $(document).ready(function(){
     var coords_text;
     var move_or_cut = 'move';
     if($('#feed_btn').hasClass("active")){
-      move_or_cut = 'cut';
+      move_or_cut = '<b><font color="red">cut</font></b>';
     }
     var feedrate = DataHandler.mapConstrainFeedrate($( "#feedrate_field" ).val());
     var intensity =  DataHandler.mapConstrainIntesity($( "#intensity_field" ).val());
@@ -127,7 +127,7 @@ $(document).ready(function(){
                            ' Y' + y_phy.toFixed(app_settings.num_digits) + '\nG55\n';
       send_gcode(gcode, "Offset set.", false);
       $(this).css('border', '1px dashed #aaaaaa');
-      $("#offset_area").css('border', '1px dashed #ff0000');
+      $("#offset_area").css('border', '1px dashed #007777');
     }
   }
   
@@ -164,7 +164,7 @@ $(document).ready(function(){
   $("#cutting_area").hover(
     function () {
       if (!gcode_coordinate_offset) {
-        $(this).css('border', '1px dashed #ff0000');
+        $(this).css('border', '1px dashed #007777');
       }
       $(this).css('cursor', 'crosshair');
     },
@@ -200,7 +200,7 @@ $(document).ready(function(){
         }
       }
     }
-    $('#coordinates_info').text(coords_text);
+    $('#coordinates_info').html(coords_text);
   });
   
   
@@ -227,7 +227,7 @@ $(document).ready(function(){
       var offset = $(this).offset();
       var x = (e.pageX - offset.left);
       var y = (e.pageY - offset.top);
-      $('#offset_info').text(assemble_info_text(x,y));
+      $('#offset_info').html(assemble_info_text(x,y));
     } else {
       $('#offset_info').text('');
     }
@@ -243,11 +243,17 @@ $(document).ready(function(){
     $("#intensity_field" ).hide();
     $("#intensity_field_disabled" ).show();
     $('#loc_move_cut_word').html('Move');
-  });  
+
+    $("#feed_btn").removeClass('btn-danger');
+    $("#location_set_btn").removeClass('btn-danger');
+  });
   $("#feed_btn").click(function(e) {
     $("#intensity_field_disabled" ).hide();
     $("#intensity_field" ).show();
     $('#loc_move_cut_word').html('Cut');
+
+    $("#feed_btn").addClass('btn-danger');
+    $("#location_set_btn").addClass('btn-danger');
   });   
   
   $("#feedrate_btn_slow").click(function(e) {

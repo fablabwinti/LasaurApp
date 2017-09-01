@@ -31,6 +31,6 @@ div.log_error {
   border: 1px solid red;
 }
 
-button.active-strong {
-  border: 1px solid #aaaaaa;
+.colorbtns button.active {
+  background-color: #aaaaaa;
 }

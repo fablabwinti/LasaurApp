@@ -263,13 +263,10 @@ function addPasses(num) {
     // color pass widget toggles events registration
     pass_elem.find('.colorbtns button.select_color').click(function(e){
       // toggle manually to work the same as preview buttons
-      // also need active-strong anyways
       if($(this).hasClass('active')) {
         $(this).removeClass('active');
-        $(this).removeClass('active-strong');
       } else {
         $(this).addClass('active');
-        $(this).addClass('active-strong');
       }
       refresh_preview(true, true);
     });
@@ -333,7 +330,7 @@ function writePassesWidget() {
           var col = colors[ii];
           var color_order = DataHandler.getColorOrder();
           if (col in color_order) {
-            $('#passes > div:nth-child('+num+') .colorbtns button:eq('+color_order[col]+')').addClass('active active-strong')
+            $('#passes > div:nth-child('+num+') .colorbtns button:eq('+color_order[col]+')').addClass('active')
           }
         }
       } else {

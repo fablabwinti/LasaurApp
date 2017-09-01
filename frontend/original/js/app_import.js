@@ -141,7 +141,7 @@ $(document).ready(function(){
 
       // add preview color buttons, show info, register events
       for (var color in DataHandler.getColorOrder()) {
-        $('#canvas_properties .colorbtns').append('<button class="preview_color active-strong active btn btn-small" style="margin:2px"><div style="width:10px; height:10px; background-color:'+color+'"><span style="display:none">'+color+'</span></div></button>');
+        $('#canvas_properties .colorbtns').append('<button class="preview_color active btn btn-small" style="margin:2px"><div style="width:10px; height:10px; background-color:'+color+'"><span style="display:none">'+color+'</span></div></button>');
       }
       $('#canvas_properties .colorbtns').append(' <span id="num_selected_colors">0</span> colors selected for import.');
       $('button.preview_color').click(function(e){
@@ -149,10 +149,8 @@ $(document).ready(function(){
         // would happen after generatPreview()
         if($(this).hasClass('active')) {
           $(this).removeClass('active');
-          $(this).removeClass('active-strong');
         } else {
           $(this).addClass('active');
-          $(this).addClass('active-strong');
         }
         generatePreview();
       });
