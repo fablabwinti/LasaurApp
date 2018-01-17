@@ -351,14 +351,14 @@ $(document).ready(function(){
         report_error(msg);
       }
       // schedule next hardware poll
-      setTimeout(function() {poll_hardware_status()}, 300);
+      setTimeout(function() {poll_hardware_status();}, 3000);
     }).fail(function() {
       // lost connection to server
       previous_status = {};
       report_error("connection to backend webserver lost");
       connect_btn_set_state(false);
       // schedule next hardware poll
-      setTimeout(function() {poll_hardware_status()}, 1000);
+      setTimeout(function() {poll_hardware_status();}, 10000);
     });
   }
   // kick off hardware polling

@@ -14,7 +14,8 @@ angular.module('app.admin', ['app.core'])
     vm.haveStatusUpdates = true;
     vm.lastStatusMessageReceived = true;
 
-    var statusStream = $websocket('ws://' + window.location.host + '/status/ws');
+    var protocol = window.location.protocol.replace('http', 'ws')
+    var statusStream = $websocket(protocol + '//' + window.location.host + window.location.pathname + 'ws/status');
     statusStream.onMessage(function(message) {
         vm.status = JSON.parse(message.data);
         vm.lastStatusMessageReceived = true;
@@ -28,7 +29,7 @@ angular.module('app.admin', ['app.core'])
     }, 1500);
 
     vm.flashFirmware = function(use_prebuilt_release) {
-        var url = '/firmware/flash';
+        var url = 'firmware/flash';
         if (use_prebuilt_release) {
             url += '_release';
         }
@@ -52,7 +53,7 @@ angular.module('app.admin', ['app.core'])
     vm.buildAndFlash = function() {
         vm.busy = true;
         vm.message = 'Building firmware...';
-        return $http.post('/firmware/build').then(
+        return $http.post('firmware/build').then(
             function success(resp) {
                 vm.flashFirmware(false);
             }, function error(resp) {
@@ -65,7 +66,7 @@ angular.module('app.admin', ['app.core'])
     vm.resetFirmware = function() {
         vm.busy = true;
         vm.message = 'Reset...';
-        return $http.post('/firmware/reset').then(
+        return $http.post('firmware/reset').then(
             function success(resp) {
                 vm.busy = false;
                 vm.message = 'Success!';
@@ -76,7 +77,7 @@ angular.module('app.admin', ['app.core'])
         );
     };
 
-    $http.get('/config').then(function(response) {
+    $http.get('config').then(function(response) {
         var config = response.data;
         vm.config = config;
     });
