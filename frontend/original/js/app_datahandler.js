@@ -433,6 +433,16 @@ DataHandler = {
     return total_bbox;
   },
 
+  getMinMax : function() {
+    var intensities = _.map(this.passes, 'intensity').map(_.toNumber);
+    var feedrates = _.map(this.passes, 'feedrate').map(_.toNumber);
+    return {
+      min_intensity: _.min(intensities),
+      max_intensity: _.max(intensities),
+      min_feedrate: _.min(feedrates),
+      max_feedrate: _.max(feedrates),
+    };
+  },
 
   // path optimizations /////////////////////////
 

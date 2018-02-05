@@ -57,6 +57,40 @@ function refresh_preview(reload_data, read_passes_widget) {
   } else {
     $('#stats_after_name').html('select a color');
   }
+  refresh_warnings();
+}
+
+function refresh_warnings() {
+  var el = $('#warnings_before_send');
+  el.empty();
+  function warn(text, comment) {
+    $('<span/>', {
+      style: 'color:#880000; font-weight: bold;',
+      text: '⚠ ' + text
+    }).appendTo(el);
+    $('<br>').appendTo(el);
+    if (comment) {
+      $('<span/>', {
+        text: comment
+      }).appendTo(el);
+      $('<br>').appendTo(el);
+    }
+  }
+
+  var minmax = DataHandler.getMinMax();
+  if (minmax.max_feedrate > 8000) {
+    warn('feedrate should not be above 8000 mm/min',
+         'The driveboard CPU/firmware cannot keep up with high feedrates. ' +
+         'It may produce jerky acceleration or even freeze.');
+  }
+  if (minmax.min_feedrate <= 300) {
+    warn('feedrate <= 300 mm/min, increased risk of fire',
+         'Be extra careful. Maybe try two passes at double speed instead.');
+  }
+  if (minmax.max_intensity > 90) {
+    warn('please avoid intensity > 90% (FablabWinti policy)',
+         'It wears out the laser tube faster. Try a lower feedrate instead, or use mutliple passes.');
+  }
 }
 
 /// QUEUE/LIBRARY ///////////////////////////////
@@ -270,14 +304,16 @@ function addPasses(num) {
       }
       refresh_preview(true, true);
     });
-    pass_elem.find('.feedrate').on('input', (function(e){
-      // estimate no longer valid
-      $('#stats_after_name').html('');
-    }));
-     pass_elem.find('.feedrate').on('change', (function(e){
-      // update time estimate
+
+    function updateStuff() {
       refresh_preview(true, true);
-    }));
+    }
+
+    var updateStuffSoon = _.debounce(updateStuff, 500);
+    pass_elem.find('.feedrate').on('input', updateStuffSoon);
+    pass_elem.find('.intensity').on('input', updateStuffSoon)
+    pass_elem.find('.feedrate').on('change', updateStuffSoon.flush);
+    pass_elem.find('.intensity').on('change', updateStuffSoon.flush);
   }
   $('#passes_container').show();
 }
@@ -343,9 +379,9 @@ function writePassesWidget() {
     if (DataHandler.getAllColors().length == 1) {
       $('#passes > div:nth-child(1) .colorbtns').children('button').addClass('active')
       $().uxmessage('notice', "assigned to pass1");
-      readPassesWidget();
     }
   }
+  readPassesWidget();
 }
 
 
