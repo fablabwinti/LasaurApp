@@ -48,7 +48,6 @@
 uint8_t rx_buffer[RX_BUFFER_SIZE];
 volatile uint8_t rx_buffer_head = 0;
 volatile uint8_t rx_buffer_tail = 0;
-volatile uint8_t rx_buffer_open_slots = RX_BUFFER_SIZE - 1;
 
 uint8_t tx_buffer[TX_BUFFER_SIZE];
 volatile uint8_t tx_buffer_head = 0;
@@ -98,7 +97,7 @@ void serial_init() {
 	  
 	// defaults to 8-bit, no parity, 1 stop bit
 
-  serial_write_param(INFO_STARTUP_GREETING, 200.456);
+  serial_write_param(INFO_STARTUP_GREETING, 201.456);
 }
 
 
@@ -157,7 +156,6 @@ uint8_t serial_read() {
   cli();
   uint8_t data = rx_buffer[rx_buffer_tail];
   if (++rx_buffer_tail == RX_BUFFER_SIZE) {rx_buffer_tail = 0;}  // increment  
-  rx_buffer_open_slots++;
   rx_buffer_processed++;
   if (rx_buffer_processed == RX_CHUNK_SIZE) {
     notify_chunk_processed++;
@@ -219,7 +217,6 @@ ISR(USART_RX_vect) {
     } else {
       rx_buffer[head] = data;
       rx_buffer_head = next_head;
-      rx_buffer_open_slots--;
     }
   }
 }
@@ -244,73 +241,4 @@ uint8_t serial_protocol_read() {
 uint8_t serial_data_available() {
   return rx_buffer_tail != rx_buffer_head;
 }
-
-
-// void printString(const char *s) {
-//   while (*s) {
-//     serial_write(*s++);
-//   }
-// }
-
-// // Print a string stored in PGM-memory
-// void printPgmString(const char *s) {
-//   char c;
-//   while ((c = pgm_read_byte_near(s++))) {
-//     serial_write(c);
-//   }
-// }
-
-// void printIntegerInBase(unsigned long n, unsigned long base) {
-//   unsigned char buf[8 * sizeof(long)]; // Assumes 8-bit chars.
-//   unsigned long i = 0;
-
-//   if (n == 0) {
-//     serial_write('0');
-//     return;
-//   }
-
-//   while (n > 0) {
-//     buf[i++] = n % base;
-//     n /= base;
-//   }
-
-//   for (; i > 0; i--) {
-//     serial_write(buf[i - 1] < 10 ?
-//     '0' + buf[i - 1] :
-//     'A' + buf[i - 1] - 10);
-//   }
-// }
-
-// void printInteger(long n) {
-//   if (n < 0) {
-//     serial_write('-');
-//     n = -n;
-//   }
-
-//   printIntegerInBase(n, 10);
-// }
-
-// void printFloat(double n) {
-//   if (n < 0) {
-//     serial_write('-');
-//     n = -n;
-//   }
-//   n += 0.5/1000; // Add rounding factor
- 
-//   long integer_part;
-//   integer_part = (int)n;
-//   printIntegerInBase(integer_part,10);
-  
-//   serial_write('.');
-  
-//   n -= integer_part;
-//   int decimals = 3;
-//   uint8_t decimal_part;
-//   while(decimals-- > 0) {
-//     n *= 10;
-//     decimal_part = (int) n;
-//     serial_write('0'+decimal_part);
-//     n -= decimal_part;
-//   }
-// }
 

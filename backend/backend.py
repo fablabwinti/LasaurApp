@@ -67,7 +67,6 @@ def main():
         conf['driveboard']['serial_port'],
         conf['driveboard'].getint('baudrate'))
     board.connect()
-    # self.board.serial_write_raw(b'aslfdkajsflaksjflask')
 
     app = Application(conf, board)
 

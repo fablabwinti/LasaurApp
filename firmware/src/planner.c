@@ -291,8 +291,7 @@ void planner_discard_current_block() {
 }
 
 void planner_reset_block_buffer() {
-  block_buffer_head = 0;
-  block_buffer_tail = 0;
+  block_buffer_tail = block_buffer_head;
 }
 
 

@@ -144,7 +144,7 @@ class DriveboardGcode:
         elif cmd == 'G10':
             p = args.pop('P', None)
             if p == 0:  # set table offset (G54)
-                which = 'TABLE'
+                which = 'TABLE'  # (never used by current frontend)
             elif p == 1:  # set custom offset (G55)
                 which = 'CUSTOM'
             else:

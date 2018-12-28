@@ -451,17 +451,18 @@ class Driveboard:
             self.last_status_request = time.time()
 
     def _on_startup_greeting(self, value):
-        if abs(value - 200.456) < 0.001:
-            if self.greeting_timeout is not None:
-                self.io_loop.remove_timeout(self.greeting_timeout)
-                self.greeting_timeout = None
-                logging.info('got firmware startup greeting')
-                if self.firmbuf_used != 0:
-                    self.disconnect('Startup error, firmbuf_used should remain empty during startup!')
-            else:
-                self.disconnect('Got firmware startup greeting. Unexpected firmware reset!')
-        else:
-            self.disconnect('Got invalid firmware startup greeting: %r' % repr(value))
+        if abs(value - 201.456) > 0.001:
+            self.disconnect('Got invalid firmware startup greeting: %r' % value)
+            return
+        if self.greeting_timeout is None:
+            self.disconnect('Got firmware startup greeting. Unexpected firmware reset!')
+            return
+        self.io_loop.remove_timeout(self.greeting_timeout)
+        self.greeting_timeout = None
+
+        logging.info('got firmware startup greeting')
+        if self.firmbuf_used != 0:
+            self.disconnect('Startup error, firmbuf_used should remain empty during startup!')
 
     def _on_greeting_timeout(self):
         self.greeting_timeout = None
